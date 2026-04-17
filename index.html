@@ -1017,19 +1017,16 @@ async function deleteTx(id) {
 }
 
 // ── Budget modal ──────────────────────────────────
-let dragBudgetIdx = null;
-
 function openBudgetModal() {
   renderBudgetEditor();
   document.getElementById('budgetModal').classList.add('open');
 }
 
 function renderBudgetEditor() {
-  let html = `<div id="budgetList">`;
+  let html = `<div id="budgetList" style="position:relative">`;
   budgetOrder.forEach((cat, idx) => {
-    html += `<div class="form-group" draggable="true" data-bidx="${idx}" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:grab">
-      <span style="font-size:16px;cursor:grab;color:var(--text3)"
-        ontouchstart="dragBudgetIdx=${idx}" ontouchmove="budgetTouchMove(event)" ontouchend="budgetTouchEnd(event)">☰</span>
+    html += `<div class="budget-edit-row" data-bidx="${idx}" style="display:flex;align-items:center;gap:8px;padding:8px;margin-bottom:4px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);transition:transform 0.2s cubic-bezier(0.2,0.8,0.2,1),box-shadow 0.2s,background 0.2s;touch-action:pan-y">
+      <span class="budget-drag-handle" style="font-size:18px;color:var(--text3);padding:4px 6px;cursor:grab;user-select:none;touch-action:none">☰</span>
       <span style="font-size:12px;min-width:70px;white-space:nowrap">${ICONS[cat]||'📝'} ${cat}</span>
       <input class="form-input" type="text" id="bud_${idx}" value="${(budgets[cat]||0).toLocaleString('ko-KR')}" inputmode="numeric" oninput="formatAmountInput(this)" style="flex:1;padding:8px 10px;font-size:14px">
       <button onclick="removeBudgetItem(${idx})" style="background:none;border:none;color:var(--red);font-size:16px;cursor:pointer;padding:4px">✕</button>
@@ -1047,44 +1044,101 @@ function renderBudgetEditor() {
     </div>`;
   }
   document.getElementById('budgetEditContent').innerHTML = html;
+  attachBudgetDragHandlers();
+}
 
-  // Desktop drag events
-  document.querySelectorAll('#budgetList [draggable]').forEach(el => {
-    el.addEventListener('dragstart', e => { dragBudgetIdx = parseInt(el.dataset.bidx); el.style.opacity = '0.4'; });
-    el.addEventListener('dragend', e => { el.style.opacity = '1'; });
-    el.addEventListener('dragover', e => { e.preventDefault(); });
-    el.addEventListener('drop', e => {
-      e.preventDefault();
-      const toIdx = parseInt(el.dataset.bidx);
-      if (dragBudgetIdx !== null && dragBudgetIdx !== toIdx) {
-        const [moved] = budgetOrder.splice(dragBudgetIdx, 1);
-        budgetOrder.splice(toIdx, 0, moved);
+function attachBudgetDragHandlers() {
+  const list = document.getElementById('budgetList');
+  if (!list) return;
+  const rows = Array.from(list.querySelectorAll('.budget-edit-row'));
+
+  rows.forEach(row => {
+    const handle = row.querySelector('.budget-drag-handle');
+    let dragging = false;
+    let startY = 0;
+    let rowStartTop = 0;
+    let rowHeight = 0;
+    let rowIdx = 0;
+    let heights = [];
+    let currentOffsetIdx = 0;
+
+    const start = (clientY) => {
+      dragging = true;
+      rowIdx = parseInt(row.dataset.bidx);
+      const rect = row.getBoundingClientRect();
+      startY = clientY;
+      rowHeight = rect.height + 4; // margin
+      rowStartTop = rect.top;
+      heights = rows.map(r => r.getBoundingClientRect().height + 4);
+      currentOffsetIdx = rowIdx;
+
+      row.style.zIndex = '10';
+      row.style.boxShadow = '0 8px 24px rgba(0,0,0,0.5)';
+      row.style.background = 'var(--accent)';
+      row.style.transition = 'box-shadow 0.2s, background 0.2s';
+    };
+
+    const move = (clientY) => {
+      if (!dragging) return;
+      const dy = clientY - startY;
+      row.style.transform = `translateY(${dy}px) scale(1.02)`;
+
+      // 얼마나 이동했는지 계산
+      const avgH = rowHeight;
+      const offset = Math.round(dy / avgH);
+      const newIdx = Math.max(0, Math.min(rows.length - 1, rowIdx + offset));
+
+      if (newIdx !== currentOffsetIdx) {
+        currentOffsetIdx = newIdx;
+        // 다른 행들 위치 재조정
+        rows.forEach(r => {
+          const ri = parseInt(r.dataset.bidx);
+          if (ri === rowIdx) return;
+          let shift = 0;
+          if (rowIdx < newIdx && ri > rowIdx && ri <= newIdx) shift = -rowHeight;
+          else if (rowIdx > newIdx && ri >= newIdx && ri < rowIdx) shift = rowHeight;
+          r.style.transform = `translateY(${shift}px)`;
+        });
+      }
+    };
+
+    const end = () => {
+      if (!dragging) return;
+      dragging = false;
+      row.style.zIndex = '';
+      row.style.boxShadow = '';
+      row.style.background = '';
+      row.style.transform = '';
+      rows.forEach(r => { r.style.transform = ''; });
+
+      if (currentOffsetIdx !== rowIdx) {
+        const [moved] = budgetOrder.splice(rowIdx, 1);
+        budgetOrder.splice(currentOffsetIdx, 0, moved);
+        // 현재 입력값 보존
+        const currentValues = {};
+        rows.forEach(r => {
+          const i = parseInt(r.dataset.bidx);
+          const input = r.querySelector('input');
+          if (input) currentValues[budgetOrder.indexOf(budgetOrder[i])] = input.value;
+        });
         renderBudgetEditor();
       }
+    };
+
+    // 터치
+    handle.addEventListener('touchstart', e => { e.preventDefault(); start(e.touches[0].clientY); }, { passive: false });
+    handle.addEventListener('touchmove', e => { e.preventDefault(); move(e.touches[0].clientY); }, { passive: false });
+    handle.addEventListener('touchend', end);
+    handle.addEventListener('touchcancel', end);
+
+    // 마우스
+    handle.addEventListener('mousedown', e => { e.preventDefault(); start(e.clientY);
+      const onMove = ev => move(ev.clientY);
+      const onUp = () => { end(); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
     });
   });
-}
-
-function budgetTouchMove(e) {
-  e.preventDefault();
-}
-function budgetTouchEnd(e) {
-  if (dragBudgetIdx === null) return;
-  const touch = e.changedTouches[0];
-  const els = document.querySelectorAll('#budgetList [draggable]');
-  let toIdx = dragBudgetIdx;
-  els.forEach(el => {
-    const rect = el.getBoundingClientRect();
-    if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
-      toIdx = parseInt(el.dataset.bidx);
-    }
-  });
-  if (dragBudgetIdx !== toIdx) {
-    const [moved] = budgetOrder.splice(dragBudgetIdx, 1);
-    budgetOrder.splice(toIdx, 0, moved);
-    renderBudgetEditor();
-  }
-  dragBudgetIdx = null;
 }
 
 function addBudgetItem() {
