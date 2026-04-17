@@ -1244,6 +1244,7 @@ function renderCalSection(year, month, txs) {
   else if (calMode === 'who-detail') html += `👤 ${calSelectedWho} ${typeLabel} 내역`;
   else if (calMode === 'category') html += `📊 ${MONTHS[month]} 카테고리별 ${typeLabel}`;
   else if (calMode === 'cat-detail') html += `${ICONS[calSelectedCat]||'📝'} ${calSelectedCat} ${typeLabel} 내역`;
+  else if (calMode === 'who-cat-detail') html += `${ICONS[calSelectedCat]||'📝'} ${calSelectedWho} · ${calSelectedCat}`;
   html += `</div>
     <div class="cal-header-icons">
       <div class="cal-icon-btn${calMode==='calendar'?' active':''}" onclick="calMode='calendar';viewHistory=[];selectedCalDay=null;render()">📆</div>
@@ -1270,6 +1271,8 @@ function renderCalSection(year, month, txs) {
     html += renderCatAnalysis(filteredTxs);
   } else if (calMode === 'cat-detail') {
     html += renderCatDetail(filteredTxs);
+  } else if (calMode === 'who-cat-detail') {
+    html += renderWhoCatDetail(filteredTxs);
   }
 
   html += `</div>`;
@@ -1350,12 +1353,39 @@ function renderWhoDetail(filteredTxs) {
   html += `<div class="who-chart">`;
   sorted.forEach(([cat, amt]) => {
     const pct = Math.max(amt / maxAmt * 100, 3);
-    html += `<div class="who-bar-row">
+    html += `<div class="who-bar-row" onclick="calSelectedCat='${cat}';pushCalMode('who-cat-detail')">
       <div class="who-bar-name" style="font-size:14px">${ICONS[cat] || '📝'}</div>
       <div class="who-bar-track"><div class="who-bar-fill" style="width:${pct}%;background:var(--accent)">${cat}</div></div>
       <div class="who-bar-amt">${fmt(amt)}원</div>
     </div>`;
   });
+  html += `</div>`;
+  return html;
+}
+
+// ── Who+Category detail (구성원의 특정 카테고리 내역) ──
+function renderWhoCatDetail(filteredTxs) {
+  const txs = filteredTxs.filter(t => t.who === calSelectedWho && t.category === calSelectedCat);
+  const total = txs.reduce((s, t) => s + t.amount, 0);
+  const isExp = calTxType === 'expense';
+  const label = isExp ? '총 지출' : '총 수입';
+  const color = isExp ? 'var(--red)' : 'var(--green)';
+  const sign = isExp ? '-' : '+';
+
+  let html = `<div style="font-size:12px;color:var(--text2);margin-bottom:10px">${calSelectedWho} · ${ICONS[calSelectedCat]||'📝'} ${calSelectedCat} · ${label} <b style="color:${color}">${fmt(total)}원</b> · ${txs.length}건</div>`;
+  html += `<div class="tx-list">`;
+  txs.forEach(tx => {
+    const whoBg = WHO_COLORS[tx.who] || 'var(--surface2)';
+    const whoTxt = WHO_TEXT[tx.who] || 'var(--text2)';
+    const typeBadge = isExp ? `<span class="badge ${tx.cost_type === '고정비' ? 'badge-fixed' : 'badge-var'}">${tx.cost_type}</span>` : '';
+    const amtColor = isExp ? 'var(--text)' : 'var(--green)';
+    html += `<div class="tx-item">
+      <div class="tx-left"><div><div class="tx-title">${tx.memo || tx.category} ${typeBadge} <span class="badge" style="background:${whoBg};color:${whoTxt};border:none">${tx.who}</span></div>
+        <div class="tx-meta">${tx.payment} · ${String(tx.date).slice(5)}</div></div></div>
+      <div class="tx-right"><div class="tx-amount" style="color:${amtColor}">${sign}${fmt(tx.amount)}</div></div>
+    </div>`;
+  });
+  if (!txs.length) html += `<div style="text-align:center;color:var(--text3);font-size:12px;padding:16px">내역이 없어요</div>`;
   html += `</div>`;
   return html;
 }
