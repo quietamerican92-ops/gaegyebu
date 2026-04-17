@@ -204,8 +204,8 @@
   .who-chart { display: flex; flex-direction: column; gap: 10px; padding: 6px 0; }
   .who-bar-row { display: flex; align-items: center; gap: 10px; cursor: pointer; }
   .who-bar-name { font-size: 12px; font-weight: 600; width: 36px; flex-shrink: 0; text-align: center; }
-  .who-bar-track { flex: 1; height: 28px; background: var(--surface2); border-radius: 6px; overflow: hidden; position: relative; }
-  .who-bar-fill { height: 100%; border-radius: 6px; display: flex; align-items: center; padding-left: 8px; font-size: 11px; font-weight: 700; color: white; min-width: 0; transition: width 0.4s; }
+  .who-bar-track { flex: 1; height: 28px; background: var(--surface2); border-radius: 6px; overflow: visible; position: relative; }
+  .who-bar-fill { height: 100%; border-radius: 6px; display: flex; align-items: center; padding-left: 8px; font-size: 11px; font-weight: 700; color: white; min-width: 0; transition: width 0.4s; white-space: nowrap; }
   .who-bar-amt { font-size: 11px; color: var(--text2); width: 75px; text-align: right; flex-shrink: 0; }
 
   /* Who detail (category breakdown) */
@@ -628,18 +628,60 @@ function setWhoFilter(who) { filterWho = who; render(); }
 
 // ── Annual view ───────────────────────────────────
 function renderAnnual() {
-  let html = `<div class="section"><div class="section-header"><div class="section-title">연간 요약 (${currentYear})</div></div><div class="annual-list">`;
-  let hasAny = false;
+  // 월별 데이터 수집
+  const monthData = [];
   MONTHS.forEach((m, i) => {
     const txs = getMonthTxs(currentYear, i);
-    if (!txs.length) return;
-    hasAny = true;
-    const income  = txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+    const income = txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
     const expense = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
     const bal = income - expense;
-    html += `<div class="annual-item" onclick="currentMonth=${i};switchView('monthly')">
-      <div class="annual-top"><div class="annual-month">${m}</div><div style="font-size:14px;font-weight:700;color:${bal>=0?'var(--green)':'var(--red)'}">${bal>=0?'+':''}${fmt(bal)}원</div></div>
-      <div class="annual-detail"><span>💚 ${fmt(income)}</span><span>🔴 ${fmt(expense)}</span><span>${txs.length}건</span></div>
+    monthData.push({ month: m, idx: i, txs, income, expense, bal, hasData: txs.length > 0 });
+  });
+
+  // 꺾은선 그래프 (데이터 있는 달만)
+  const dataPoints = monthData.filter(d => d.hasData);
+  let chartHtml = '';
+  if (dataPoints.length > 0) {
+    const vals = dataPoints.map(d => d.bal);
+    const maxVal = Math.max(...vals.map(Math.abs), 1);
+    const svgW = 320, svgH = 140, padX = 35, padY = 20;
+    const chartW = svgW - padX * 2, chartH = svgH - padY * 2;
+
+    // 포인트 좌표 계산
+    const points = dataPoints.map((d, i) => {
+      const x = padX + (dataPoints.length === 1 ? chartW / 2 : (i / (dataPoints.length - 1)) * chartW);
+      const y = padY + chartH / 2 - (d.bal / maxVal) * (chartH / 2);
+      return { x, y, d };
+    });
+
+    // 0선 위치
+    const zeroY = padY + chartH / 2;
+
+    let pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+
+    chartHtml = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:13px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px">📈 월별 저축 추세</div>
+      <svg viewBox="0 0 ${svgW} ${svgH}" style="width:100%;height:auto">
+        <line x1="${padX}" y1="${zeroY}" x2="${svgW-padX}" y2="${zeroY}" stroke="var(--border)" stroke-width="1" stroke-dasharray="4"/>
+        <path d="${pathD}" fill="none" stroke="var(--accent2)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        ${points.map(p => `
+          <circle cx="${p.x}" cy="${p.y}" r="4" fill="${p.d.bal>=0?'var(--green)':'var(--red)'}" stroke="var(--surface)" stroke-width="2"/>
+          <text x="${p.x}" y="${p.y - 10}" text-anchor="middle" fill="var(--text2)" font-size="8" font-weight="600">${p.d.bal>=0?'+':''}${(p.d.bal/10000).toFixed(0)}만</text>
+          <text x="${p.x}" y="${zeroY + 14}" text-anchor="middle" fill="var(--text3)" font-size="8">${p.d.month}</text>
+        `).join('')}
+      </svg>
+    </div>`;
+  }
+
+  let html = chartHtml;
+  html += `<div class="section"><div class="section-header"><div class="section-title">연간 요약 (${currentYear})</div></div><div class="annual-list">`;
+  let hasAny = false;
+  monthData.forEach(d => {
+    if (!d.hasData) return;
+    hasAny = true;
+    html += `<div class="annual-item" onclick="currentMonth=${d.idx};switchView('monthly')">
+      <div class="annual-top"><div class="annual-month">${d.month}</div><div style="font-size:14px;font-weight:700;color:${d.bal>=0?'var(--green)':'var(--red)'}">${d.bal>=0?'+':'-'}${fmt(d.bal)}원</div></div>
+      <div class="annual-detail"><span>💚 ${fmt(d.income)}</span><span>🔴 ${fmt(d.expense)}</span><span>${d.txs.length}건</span></div>
     </div>`;
   });
   if (!hasAny) html += `<div class="empty"><div class="empty-icon">📊</div><p>데이터가 없어요</p></div>`;
