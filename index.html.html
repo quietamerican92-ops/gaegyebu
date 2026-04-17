@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="우리 가계부">
+<meta name="theme-color" content="#0F1117">
+<link rel="manifest" href="manifest.json">
+<title>우리 가계부</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0F1117;
+    --surface: #1A1D27;
+    --surface2: #22263A;
+    --border: #2E3350;
+    --accent: #5B6EF5;
+    --accent2: #7C8FFF;
+    --green: #2ECC8A;
+    --red: #F06060;
+    --orange: #F5A623;
+    --yellow: #FFD166;
+    --purple: #A78BFA;
+    --text: #F0F2FF;
+    --text2: #8B90B8;
+    --text3: #555A7A;
+    --radius: 16px;
+    --radius-sm: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'Noto Sans KR', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 130px; }
+
+  /* Header */
+  .app-header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 18px 0; position: sticky; top: 0; z-index: 100; }
+  .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .app-title { font-size: 17px; font-weight: 700; }
+  .app-title span { color: var(--accent2); }
+  .sync-badge { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* Month tabs */
+  .month-tabs { display: flex; gap: 3px; overflow-x: auto; scrollbar-width: none; }
+  .month-tabs::-webkit-scrollbar { display: none; }
+  .tab { flex-shrink: 0; font-size: 12px; font-weight: 500; color: var(--text3); padding: 8px 12px; border-radius: 8px 8px 0 0; cursor: pointer; border: 1px solid transparent; border-bottom: none; transition: all 0.15s; }
+  .tab.active { background: var(--bg); color: var(--accent2); border-color: var(--border); font-weight: 700; }
+  .tab.has-data { color: var(--text2); }
+
+  /* Content */
+  .content { padding: 14px; }
+
+  /* KPI */
+  .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; }
+  .kpi-label { font-size: 11px; color: var(--text2); margin-bottom: 5px; font-weight: 500; }
+  .kpi-value { font-size: 19px; font-weight: 900; letter-spacing: -0.5px; }
+  .kpi-sub { font-size: 10px; color: var(--text3); margin-top: 3px; }
+
+  /* Fixed/var bar */
+  .fv-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; margin-bottom: 14px; }
+  .fv-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .fv-label { font-size: 11px; display: flex; align-items: center; gap: 4px; color: var(--text2); }
+  .fv-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .bar-track { height: 7px; background: var(--surface2); border-radius: 4px; overflow: hidden; display: flex; }
+  .bar-fixed { height: 100%; background: var(--purple); transition: width 0.5s; }
+  .bar-var { height: 100%; background: var(--orange); transition: width 0.5s; }
+
+  /* Who filter */
+  .who-filter { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 14px; }
+  .who-filter::-webkit-scrollbar { display: none; }
+  .who-btn { flex-shrink: 0; font-size: 12px; padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .who-btn.active { background: var(--accent); border-color: var(--accent); color: white; font-weight: 700; }
+
+  /* Section */
+  .section { margin-bottom: 14px; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .section-title { font-size: 13px; font-weight: 700; }
+  .section-badge { font-size: 11px; color: var(--text2); }
+
+  /* Transaction */
+  .tx-list { display: flex; flex-direction: column; gap: 6px; }
+  .tx-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px 13px; display: flex; justify-content: space-between; align-items: center; animation: fadeIn 0.2s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+  .tx-left { display: flex; align-items: center; gap: 9px; }
+  .tx-icon { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+  .tx-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .tx-meta { font-size: 11px; color: var(--text2); }
+  .tx-right { display: flex; align-items: center; gap: 7px; }
+  .tx-amount { font-size: 14px; font-weight: 700; }
+  .del-btn { background: none; border: none; color: var(--text3); font-size: 14px; padding: 3px 5px; cursor: pointer; }
+
+  /* Badges */
+  .badge { font-size: 9px; padding: 2px 6px; border-radius: 20px; font-weight: 700; white-space: nowrap; }
+  .badge-fixed { background: #2D2460; color: var(--purple); }
+  .badge-var { background: #3D2800; color: var(--orange); }
+  .badge-who { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+
+  /* FAB */
+  .fab { position: fixed; bottom: 80px; right: 18px; width: 54px; height: 54px; border-radius: 16px; background: var(--accent); color: white; font-size: 26px; border: none; cursor: pointer; box-shadow: 0 6px 20px rgba(91,110,245,0.5); display: flex; align-items: center; justify-content: center; z-index: 200; transition: transform 0.15s; }
+  .fab:active { transform: scale(0.92); }
+
+  /* Bottom nav */
+  .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border); display: flex; padding: 8px 0 18px; z-index: 150; }
+  .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px; cursor: pointer; }
+  .nav-icon { font-size: 19px; }
+  .nav-label { font-size: 10px; color: var(--text3); font-weight: 500; }
+  .nav-btn.active .nav-label { color: var(--accent2); }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 300; display: flex; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal { background: var(--surface); border-radius: 22px 22px 0 0; padding: 18px; width: 100%; transform: translateY(100%); transition: transform 0.3s cubic-bezier(.32,1,.23,1); max-height: 92vh; overflow-y: auto; }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 16px; }
+  .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+
+  /* Form */
+  .form-group { margin-bottom: 13px; }
+  .form-label { font-size: 11px; color: var(--text2); margin-bottom: 5px; font-weight: 600; display: block; letter-spacing: 0.3px; }
+  .seg-control { display: flex; background: var(--surface2); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg-btn { flex: 1; text-align: center; padding: 8px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; color: var(--text2); transition: all 0.15s; border: none; background: none; font-family: inherit; }
+  .seg-btn.active { background: var(--surface); color: var(--text); }
+  .seg-btn.active.is-income { color: var(--green); }
+  .seg-btn.active.is-expense { color: var(--red); }
+  .form-input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 13px; color: var(--text); font-size: 15px; font-family: inherit; outline: none; transition: border-color 0.15s; }
+  .form-input:focus { border-color: var(--accent); }
+  .form-input::placeholder { color: var(--text3); }
+  .chip-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12px; padding: 7px 13px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: white; font-weight: 700; }
+  .submit-btn { width: 100%; background: var(--accent); color: white; border: none; border-radius: 12px; padding: 15px; font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer; margin-top: 4px; }
+  .submit-btn:active { opacity: 0.85; }
+
+  /* Budget */
+  .budget-list { display: flex; flex-direction: column; gap: 7px; }
+  .budget-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px 13px; }
+  .budget-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .budget-cat { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+  .budget-amt { font-size: 11px; color: var(--text2); }
+  .budget-amt b { color: var(--text); }
+  .prog-track { height: 5px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .prog-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+
+  /* Annual */
+  .annual-list { display: flex; flex-direction: column; gap: 7px; }
+  .annual-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px; cursor: pointer; }
+  .annual-top { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .annual-month { font-size: 14px; font-weight: 700; }
+  .annual-detail { display: flex; gap: 14px; font-size: 11px; color: var(--text2); }
+
+  /* Empty */
+  .empty { text-align: center; padding: 50px 20px; color: var(--text3); }
+  .empty-icon { font-size: 44px; margin-bottom: 10px; }
+
+  /* Loading */
+  .loading { text-align: center; padding: 40px; color: var(--text2); font-size: 13px; }
+  .spinner { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Fixed view */
+  .fixed-total { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
+  .fixed-total-label { font-size: 12px; color: var(--text2); }
+  .fixed-total-val { font-size: 20px; font-weight: 900; color: var(--purple); }
+
+  /* Year nav */
+  .year-nav { display: flex; align-items: center; gap: 8px; }
+  .year-btn { background: none; border: none; color: var(--text2); font-size: 18px; cursor: pointer; padding: 2px 6px; line-height: 1; }
+  .year-label { font-size: 13px; font-weight: 700; color: var(--text); min-width: 50px; text-align: center; }
+
+  /* Calendar */
+  .cal-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; margin-bottom: 14px; }
+  .cal-title { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .cal-dow { font-size: 10px; color: var(--text3); text-align: center; padding: 4px 0; font-weight: 600; }
+  .cal-dow:first-child { color: var(--red); }
+  .cal-dow:last-child { color: #5B8DEF; }
+  .cal-cell { text-align: center; padding: 6px 2px; border-radius: 8px; min-height: 48px; cursor: pointer; transition: background 0.1s; }
+  .cal-cell:hover { background: var(--surface2); }
+  .cal-cell.today { background: var(--surface2); }
+  .cal-cell.selected { background: var(--accent); border-radius: 8px; }
+  .cal-cell.selected .cal-day { color: white !important; }
+  .cal-cell.selected .cal-amt { color: rgba(255,255,255,0.8) !important; }
+  .cal-day-detail { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; margin-bottom: 14px; animation: fadeIn 0.2s ease; }
+  .cal-day-detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .cal-day-detail-title { font-size: 13px; font-weight: 700; }
+  .cal-day-detail-close { background: none; border: none; color: var(--text3); font-size: 16px; cursor: pointer; padding: 2px 6px; }
+  .cal-day { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .cal-cell:nth-child(7n+1) .cal-day { color: var(--red); }
+  .cal-cell:nth-child(7n) .cal-day { color: #5B8DEF; }
+  .cal-cell.empty .cal-day { visibility: hidden; }
+  .cal-amt { font-size: 9px; color: var(--red); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cal-amt.income { color: var(--green); }
+
+  /* Cal section toggle icons */
+  .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .cal-header-icons { display: flex; gap: 8px; }
+  .cal-icon-btn { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; font-size: 14px; cursor: pointer; transition: all 0.15s; }
+  .cal-icon-btn.active { background: var(--accent); border-color: var(--accent); }
+
+  /* Who bar chart */
+  .who-chart { display: flex; flex-direction: column; gap: 10px; padding: 6px 0; }
+  .who-bar-row { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .who-bar-name { font-size: 12px; font-weight: 600; width: 36px; flex-shrink: 0; text-align: center; }
+  .who-bar-track { flex: 1; height: 28px; background: var(--surface2); border-radius: 6px; overflow: hidden; position: relative; }
+  .who-bar-fill { height: 100%; border-radius: 6px; display: flex; align-items: center; padding-left: 8px; font-size: 11px; font-weight: 700; color: white; min-width: 0; transition: width 0.4s; }
+  .who-bar-amt { font-size: 11px; color: var(--text2); width: 75px; text-align: right; flex-shrink: 0; }
+
+  /* Who detail (category breakdown) */
+  .who-detail-back { font-size: 12px; color: var(--accent2); cursor: pointer; margin-bottom: 10px; display: flex; align-items: center; gap: 4px; }
+
+  /* Category grid */
+  .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .cat-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 10px; text-align: center; cursor: pointer; transition: all 0.15s; }
+  .cat-box:hover { border-color: var(--accent); }
+  .cat-box-icon { font-size: 22px; margin-bottom: 4px; }
+  .cat-box-name { font-size: 11px; color: var(--text2); margin-bottom: 3px; }
+  .cat-box-amt { font-size: 13px; font-weight: 700; color: var(--text); }
+
+  /* Budget mini in monthly */
+  .budget-mini { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; margin-bottom: 14px; }
+  .budget-mini-title { font-size: 12px; font-weight: 700; color: var(--text2); margin-bottom: 10px; display: flex; justify-content: space-between; }
+  .budget-mini-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .budget-mini-cat { font-size: 11px; color: var(--text2); width: 52px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .budget-mini-track { flex: 1; height: 5px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .budget-mini-fill { height: 100%; border-radius: 3px; transition: width 0.4s; min-width: 0; }
+  .budget-mini-pct { font-size: 10px; color: var(--text3); width: 30px; text-align: right; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div class="header-top">
+    <div><div class="app-title">🏠 <span>우리 가계부</span></div><div style="font-size:9px;color:var(--text3);margin-top:1px">by 신천동 부자아빠</div></div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="year-nav">
+        <button class="year-btn" onclick="changeYear(-1)">‹</button>
+        <div class="year-label" id="yearLabel">2025년</div>
+        <button class="year-btn" onclick="changeYear(1)">›</button>
+      </div>
+      <div class="sync-badge"><div class="sync-dot"></div><span id="syncStatus">연결중...</span></div>
+    </div>
+  </div>
+  <div class="month-tabs" id="monthTabs"></div>
+</div>
+
+<div class="content" id="mainContent"><div class="loading"><div class="spinner"></div>불러오는 중...</div></div>
+
+<button class="fab" id="fabBtn">+</button>
+
+<div class="bottom-nav">
+  <div class="nav-btn active" onclick="switchView('monthly')" id="nav-monthly"><div class="nav-icon">📅</div><div class="nav-label">월별</div></div>
+  <div class="nav-btn" onclick="switchView('annual')" id="nav-annual"><div class="nav-icon">📊</div><div class="nav-label">연간</div></div>
+  <div class="nav-btn" onclick="switchView('budget')" id="nav-budget"><div class="nav-icon">🎯</div><div class="nav-label">예산</div></div>
+  <div class="nav-btn" onclick="switchView('fixed')" id="nav-fixed"><div class="nav-icon">📌</div><div class="nav-label">고정비</div></div>
+</div>
+
+<!-- Add Transaction Modal -->
+<div class="modal-overlay" id="txModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="modal-title" style="margin-bottom:0">거래 추가</div>
+      <button onclick="document.getElementById('txModal').classList.remove('open')" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;padding:4px 8px">✕</button>
+    </div>
+    <div class="form-group">
+      <div class="seg-control">
+        <button class="seg-btn active is-expense" id="seg-expense" onclick="selectType('expense')">지출</button>
+        <button class="seg-btn is-income" id="seg-income" onclick="selectType('income')">수입</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">금액</label>
+      <input class="form-input" type="text" id="amountInput" placeholder="0" inputmode="numeric" oninput="formatAmountInput(this)">
+    </div>
+    <div class="form-group">
+      <label class="form-label">지출 주체</label>
+      <div class="chip-grid" id="whoGrid"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">카테고리</label>
+      <div class="chip-grid" id="catGrid"></div>
+    </div>
+    <div class="form-group" id="costTypeGroup">
+      <label class="form-label">비용 유형</label>
+      <div class="seg-control">
+        <button class="seg-btn" id="seg-fixed" onclick="selectCostType('고정비')">고정비</button>
+        <button class="seg-btn active" id="seg-variable" onclick="selectCostType('변동비')">변동비</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">내용 (선택)</label>
+      <input class="form-input" type="text" id="memoInput" placeholder="메모...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">날짜</label>
+      <input class="form-input" type="date" id="dateInput">
+    </div>
+    <div class="form-group">
+      <label class="form-label">결제수단</label>
+      <div class="chip-grid" id="payGrid"></div>
+    </div>
+    <button class="submit-btn" onclick="addTransaction()">저장하기</button>
+  </div>
+</div>
+
+<!-- Budget Modal -->
+<div class="modal-overlay" id="budgetModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="modal-title" style="margin-bottom:0">예산 설정</div>
+      <button onclick="document.getElementById('budgetModal').classList.remove('open')" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;padding:4px 8px">✕</button>
+    </div>
+    <div id="budgetEditContent"></div>
+    <button class="submit-btn" onclick="saveBudgets()">저장하기</button>
+  </div>
+</div>
+
+<!-- Fixed Item Edit Modal -->
+<div class="modal-overlay" id="fixedModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="modal-title" id="fixedModalTitle" style="margin-bottom:0">고정비 추가</div>
+      <button onclick="document.getElementById('fixedModal').classList.remove('open')" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;padding:4px 8px">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">항목명</label>
+      <input class="form-input" type="text" id="fixedName" placeholder="예: 월세, 넷플릭스...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">카테고리</label>
+      <div class="chip-grid" id="fixedCatGrid"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">결제일</label>
+      <input class="form-input" type="number" id="fixedDay" placeholder="1~31" min="1" max="31" inputmode="numeric">
+    </div>
+    <div class="form-group">
+      <label class="form-label">금액</label>
+      <input class="form-input" type="number" id="fixedAmount" placeholder="0" inputmode="numeric">
+    </div>
+    <div class="form-group">
+      <label class="form-label">결제수단</label>
+      <div class="chip-grid" id="fixedPayGrid"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">지출 주체</label>
+      <div class="chip-grid" id="fixedWhoGrid"></div>
+    </div>
+    <button class="submit-btn" onclick="saveFixedItem()">저장하기</button>
+  </div>
+</div>
+
+<script>
+// ── Supabase ──────────────────────────────────────
+const SUPABASE_URL = 'https://odexjawwfgvglaborzdn.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kZXhqYXd3Zmd2Z2xhYm9yemRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwNzQ0OTAsImV4cCI6MjA5MTY1MDQ5MH0.TF1dXwaCG3rCWAckydTPh2eYvqk0_FYah7FeCpPn3PI';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ── Constants ─────────────────────────────────────
+const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+const WHOS = ['남편','아내','딸','시댁','처가','우리'];
+const WHO_COLORS = { '남편':'#1E3A5F', '아내':'#5F1E3A', '딸':'#1E5F3A', '시댁':'#3A1E5F', '처가':'#5F3A1E', '우리':'#1A4040' };
+const WHO_TEXT = { '남편':'#7BAADF', '아내':'#DF7BAA', '딸':'#7BDFAA', '시댁':'#AA7BDF', '처가':'#DFAA7B', '우리':'#7BDFDF' };
+const CATS_EXP = ['식비','생필품','교통','통신','외식','의료','쇼핑','주거','문화','저축','보험','구독','정기결제','용돈','육아','경조사','취미','자기계발','기타'];
+const CATS_INC = ['급여','부수입','용돈','상여금','이자','기타'];
+const PAYS = ['카드','체크카드','현금','이체','자동이체'];
+const ICONS = { '식비':'🛒','생필품':'🧴','교통':'🚌','통신':'📱','외식':'🍽️','의료':'💊','쇼핑':'👜','주거':'🏠','문화':'🎬','저축':'💰','보험':'🛡️','구독':'📺','정기결제':'💳','용돈':'🎁','육아':'👶','경조사':'🎊','취미':'🎯','자기계발':'📚','기타':'📝','급여':'💵','부수입':'💼','상여금':'🎉','이자':'🏦' };
+
+// ── State ─────────────────────────────────────────
+let currentYear = new Date().getFullYear();
+let currentMonth = new Date().getMonth();
+let currentView = 'monthly';
+let txType = 'expense';
+let costType = '변동비';
+let selCat = '';
+let selWho = '남편';
+let selPay = '카드';
+let filterWho = '전체';
+let allTxs = [];
+let budgets = JSON.parse(localStorage.getItem('budgets_v2') || '{"식비":200000,"생필품":100000,"교통":60000,"통신":60000,"외식":100000,"의료":50000,"쇼핑":150000,"주거":600000,"문화":80000,"저축":500000,"보험":130000,"구독":32000,"육아":0,"경조사":0,"취미":0,"자기계발":0,"기타":100000}');
+let fixedItems = JSON.parse(localStorage.getItem('fixedItems_v2') || 'null') || [
+  {id:1, name:'월세', cat:'주거', day:20, amount:600000, pay:'이체', who:'남편'},
+  {id:2, name:'핸드폰(남편)', cat:'통신', day:25, amount:55000, pay:'자동이체', who:'남편'},
+  {id:3, name:'핸드폰(아내)', cat:'통신', day:25, amount:55000, pay:'자동이체', who:'아내'},
+  {id:4, name:'인터넷', cat:'통신', day:15, amount:33000, pay:'자동이체', who:'남편'},
+  {id:5, name:'넷플릭스', cat:'구독', day:1, amount:17000, pay:'카드', who:'아내'},
+  {id:6, name:'정기예금', cat:'저축', day:25, amount:500000, pay:'이체', who:'남편'},
+  {id:7, name:'건강보험', cat:'보험', day:10, amount:132000, pay:'자동이체', who:'남편'},
+  {id:8, name:'국민연금', cat:'보험', day:10, amount:90000, pay:'자동이체', who:'남편'},
+];
+let editingFixedId = null;
+let editingTxId = null;
+let selectedCalDay = null;
+let calMode = 'calendar'; // 'calendar' | 'who' | 'who-detail' | 'category' | 'cat-detail'
+let calSelectedWho = null;
+let calSelectedCat = null;
+let calTxType = 'expense'; // 구성원/카테고리 뷰에서 지출/수입 토글
+let viewHistory = []; // 뒤로가기용 히스토리
+let selFixedCat = '주거', selFixedPay = '이체', selFixedWho = '남편';
+
+// ── Init ──────────────────────────────────────────
+window.addEventListener('load', async () => {
+  document.getElementById('yearLabel').textContent = currentYear + '년';
+  renderMonthTabs();
+  await loadFixedItems();
+  await loadTransactions();
+  setupRealtime();
+});
+
+function changeYear(dir) {
+  currentYear += dir;
+  document.getElementById('yearLabel').textContent = currentYear + '년';
+  renderMonthTabs();
+  render();
+}
+
+// ── 고정비 Supabase에서 로드 ──────────────────────
+async function loadFixedItems() {
+  const { data, error } = await sb.from('fixed_items').select('*').order('id');
+  if (!error && data) fixedItems = data;
+}
+
+// ── 고정비 수동 등록 (버튼으로만 실행) ──────────
+async function registerFixedThisMonth() {
+  if (!fixedItems.length) { alert('고정비 항목이 없어요'); return; }
+  if (!confirm('이번달 고정비를 등록/갱신할까요?\n(기존 자동등록 내역은 삭제 후 새로 등록됩니다)')) return;
+
+  const now = new Date();
+  const y = now.getFullYear();
+  const mon = now.getMonth(); // 0-based
+
+  // 1단계: 이미 로드된 allTxs에서 이번달 [자동] 고정비 ID 추출
+  const toDeleteIds = allTxs
+    .filter(tx => {
+      const d = new Date(tx.date);
+      return d.getFullYear() === y && d.getMonth() === mon
+        && tx.cost_type === '고정비'
+        && tx.memo && tx.memo.startsWith('[자동]');
+    })
+    .map(tx => tx.id);
+
+  // 2단계: 하나씩 삭제 (deleteTx와 동일한 방식 — 확실하게)
+  for (const id of toDeleteIds) {
+    await sb.from('transactions').delete().eq('id', id);
+  }
+
+  // 3단계: 고정비 항목 전부 새로 insert
+  const m = String(mon + 1).padStart(2, '0');
+  const rows = fixedItems.map(item => ({
+    date: `${y}-${m}-${String(Math.min(item.day, 28)).padStart(2,'0')}`,
+    type: 'expense',
+    cost_type: '고정비',
+    category: item.category,
+    memo: '[자동]' + item.name,
+    amount: item.amount,
+    payment: item.payment,
+    who: item.who,
+    fixed_item_id: item.id
+  }));
+
+  await sb.from('transactions').insert(rows);
+
+  await loadTransactions();
+  showToast(`📌 ${toDeleteIds.length}건 삭제, ${rows.length}건 등록 완료!`);
+  renderFixedView();
+}
+
+// ── (사용안함) reRegisterFixed 제거됨 ─────────────
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;z-index:999;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4)';
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+async function loadTransactions() {
+  try {
+    const { data, error } = await sb.from('transactions').select('*').order('date', { ascending: false });
+    if (error) throw error;
+    allTxs = data || [];
+    document.getElementById('syncStatus').textContent = '실시간 연결';
+    renderMonthTabs();
+    render();
+  } catch(e) {
+    document.getElementById('syncStatus').textContent = '연결 오류';
+    document.getElementById('mainContent').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><p>연결 오류: ${e.message}</p></div>`;
+  }
+}
+
+function setupRealtime() {
+  sb.channel('transactions').on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, async () => {
+    await loadTransactions();
+  }).subscribe();
+}
+
+// ── Helpers ───────────────────────────────────────
+function fmt(n) { return Math.abs(n).toLocaleString('ko-KR'); }
+function getMonthTxs(year, month, who = '전체') {
+  return allTxs.filter(tx => {
+    const d = new Date(tx.date);
+    return d.getFullYear() === year && d.getMonth() === month && (who === '전체' || tx.who === who);
+  });
+}
+
+// ── Month tabs ────────────────────────────────────
+function renderMonthTabs() {
+  const tabs = document.getElementById('monthTabs');
+  tabs.innerHTML = '';
+  MONTHS.forEach((m, i) => {
+    const hasData = allTxs.some(tx => { const d = new Date(tx.date); return d.getFullYear() === currentYear && d.getMonth() === i; });
+    const div = document.createElement('div');
+    div.className = `tab${i===currentMonth?' active':''}${hasData?' has-data':''}`;
+    div.textContent = m;
+    div.onclick = () => { currentMonth = i; selectedCalDay = null; renderMonthTabs(); render(); };
+    tabs.appendChild(div);
+  });
+  setTimeout(() => {
+    const a = tabs.querySelector('.tab.active');
+    if (a) a.scrollIntoView({ behavior:'smooth', inline:'center', block:'nearest' });
+  }, 50);
+}
+
+// ── View switching ────────────────────────────────
+function switchView(view) {
+  currentView = view;
+  ['monthly','annual','budget','fixed'].forEach(v => document.getElementById(`nav-${v}`).classList.toggle('active', v===view));
+  document.getElementById('fabBtn').style.display = view==='monthly' ? 'flex' : 'none';
+  render();
+}
+
+function render() {
+  if (currentView==='monthly') renderMonthly();
+  else if (currentView==='annual') renderAnnual();
+  else if (currentView==='budget') renderBudgetView();
+  else if (currentView==='fixed') renderFixedView();
+}
+
+// ── Monthly view ──────────────────────────────────
+function renderMonthly() {
+  const txs = getMonthTxs(currentYear, currentMonth, filterWho);
+  const allMonthTxs = getMonthTxs(currentYear, currentMonth);
+  const income  = allMonthTxs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const expense = allMonthTxs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  const fixed   = allMonthTxs.filter(t=>t.type==='expense'&&t.cost_type==='고정비').reduce((s,t)=>s+t.amount,0);
+  const variable= allMonthTxs.filter(t=>t.type==='expense'&&t.cost_type==='변동비').reduce((s,t)=>s+t.amount,0);
+  const balance = income - expense;
+  const savingRate = income > 0 ? Math.round((income-expense)/income*100) : 0;
+  const fPct = expense > 0 ? Math.round(fixed/expense*100) : 0;
+
+  let html = `
+  <div class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label">💚 수입</div><div class="kpi-value" style="color:var(--green)">${fmt(income)}</div><div class="kpi-sub">원</div></div>
+    <div class="kpi-card"><div class="kpi-label">🔴 지출</div><div class="kpi-value" style="color:var(--red)">${fmt(expense)}</div><div class="kpi-sub">원</div></div>
+    <div class="kpi-card"><div class="kpi-label">💙 잔액</div><div class="kpi-value" style="color:${balance>=0?'var(--accent2)':'var(--red)'}">${balance>=0?'+':'-'}${fmt(balance)}</div><div class="kpi-sub">원</div></div>
+    <div class="kpi-card"><div class="kpi-label">⭐ 저축률</div><div class="kpi-value" style="color:var(--yellow)">${savingRate}%</div><div class="kpi-sub">목표 20%</div></div>
+  </div>
+  ${renderCalSection(currentYear, currentMonth, allMonthTxs)}
+  ${renderDayDetail(currentYear, currentMonth, allMonthTxs)}
+  <div class="fv-card">
+    <div class="fv-row">
+      <div class="fv-label"><div class="fv-dot" style="background:var(--purple)"></div>고정비 ${fPct}% · ${fmt(fixed)}원</div>
+      <div class="fv-label"><div class="fv-dot" style="background:var(--orange)"></div>변동비 ${100-fPct}% · ${fmt(variable)}원</div>
+    </div>
+    <div class="bar-track"><div class="bar-fixed" style="width:${fPct}%"></div><div class="bar-var" style="width:${100-fPct}%"></div></div>
+  </div>
+  <div class="who-filter">
+    ${['전체',...WHOS].map(w=>`<button class="who-btn${filterWho===w?' active':''}" onclick="setWhoFilter('${w}')">${w}</button>`).join('')}
+  </div>
+
+  <div class="budget-mini">
+    <div class="budget-mini-title"><span>🎯 이번달 예산 현황</span><span style="cursor:pointer;color:var(--accent2)" onclick="switchView('budget')">전체보기 ›</span></div>
+    ${CATS_EXP.map(cat => {
+      const bud = budgets[cat] || 0;
+      const act = allMonthTxs.filter(t=>t.type==='expense'&&t.category===cat).reduce((s,t)=>s+t.amount,0);
+      if (!bud) return '';
+      const pct = Math.min(act/bud*100, 100);
+      const pctN = Math.round(act/bud*100);
+      const color = pctN>=100 ? 'var(--red)' : pctN>=80 ? 'var(--orange)' : 'var(--green)';
+      return `<div class="budget-mini-row">
+        <div class="budget-mini-cat">${ICONS[cat]||'📝'} ${cat}</div>
+        <div class="budget-mini-track"><div class="budget-mini-fill" style="width:${pct}%;background:${color}"></div></div>
+        <div class="budget-mini-pct" style="color:${color}">${pctN}%</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+
+  if (txs.length === 0) {
+    html += `<div class="empty"><div class="empty-icon">📝</div><p>거래 내역이 없어요<br>+ 버튼으로 추가해보세요</p></div>`;
+  } else {
+    html += `<div class="section"><div class="section-header"><div class="section-title">거래 내역</div><div class="section-badge">${txs.length}건</div></div><div class="tx-list">`;
+    txs.forEach(tx => {
+      const icon = ICONS[tx.category] || '📝';
+      const iconBg = tx.type==='income' ? '#1A3D2E' : (tx.cost_type==='고정비' ? '#2A2460' : '#2A1A00');
+      const amtColor = tx.type==='income' ? 'var(--green)' : 'var(--text)';
+      const amtSign  = tx.type==='income' ? '+' : '-';
+      const typeBadge = tx.type==='expense' ? `<span class="badge ${tx.cost_type==='고정비'?'badge-fixed':'badge-var'}">${tx.cost_type}</span>` : '';
+      const whoBg = WHO_COLORS[tx.who] || 'var(--surface2)';
+      const whoTxt = WHO_TEXT[tx.who] || 'var(--text2)';
+      html += `
+      <div class="tx-item">
+        <div class="tx-left">
+          <div class="tx-icon" style="background:${iconBg}">${icon}</div>
+          <div>
+            <div class="tx-title">${tx.category} ${typeBadge} <span class="badge" style="background:${whoBg};color:${whoTxt};border:none">${tx.who}</span></div>
+            <div class="tx-meta">${tx.memo||''} · ${tx.payment} · ${String(tx.date).slice(5)}</div>
+          </div>
+        </div>
+        <div class="tx-right">
+          <div class="tx-amount" style="color:${amtColor}">${amtSign}${fmt(tx.amount)}</div>
+          <button class="del-btn" onclick="editTx(${tx.id})" style="color:var(--accent2);font-size:13px">✏️</button>
+          <button class="del-btn" onclick="deleteTx(${tx.id})">✕</button>
+        </div>
+      </div>`;
+    });
+    html += `</div></div>`;
+  }
+  document.getElementById('mainContent').innerHTML = html;
+}
+
+function setWhoFilter(who) { filterWho = who; render(); }
+
+// ── Annual view ───────────────────────────────────
+function renderAnnual() {
+  let html = `<div class="section"><div class="section-header"><div class="section-title">연간 요약 (${currentYear})</div></div><div class="annual-list">`;
+  let hasAny = false;
+  MONTHS.forEach((m, i) => {
+    const txs = getMonthTxs(currentYear, i);
+    if (!txs.length) return;
+    hasAny = true;
+    const income  = txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+    const expense = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+    const bal = income - expense;
+    html += `<div class="annual-item" onclick="currentMonth=${i};switchView('monthly')">
+      <div class="annual-top"><div class="annual-month">${m}</div><div style="font-size:14px;font-weight:700;color:${bal>=0?'var(--green)':'var(--red)'}">${bal>=0?'+':''}${fmt(bal)}원</div></div>
+      <div class="annual-detail"><span>💚 ${fmt(income)}</span><span>🔴 ${fmt(expense)}</span><span>${txs.length}건</span></div>
+    </div>`;
+  });
+  if (!hasAny) html += `<div class="empty"><div class="empty-icon">📊</div><p>데이터가 없어요</p></div>`;
+  html += `</div></div>`;
+  document.getElementById('mainContent').innerHTML = html;
+}
+
+// ── Budget view ───────────────────────────────────
+function renderBudgetView() {
+  const txs = getMonthTxs(currentYear, currentMonth);
+  let html = `<div class="section"><div class="section-header"><div class="section-title">예산 현황 · ${MONTHS[currentMonth]}</div><div class="section-badge" style="cursor:pointer;color:var(--accent2)" onclick="openBudgetModal()">✏️ 수정</div></div><div class="budget-list">`;
+  CATS_EXP.forEach(cat => {
+    const bud = budgets[cat] || 0;
+    const act = txs.filter(t=>t.type==='expense'&&t.category===cat).reduce((s,t)=>s+t.amount,0);
+    if (!bud && !act) return;
+    const pct = bud > 0 ? Math.min(act/bud, 1) : 0;
+    const pctN = bud > 0 ? Math.round(act/bud*100) : 0;
+    const color = pctN>=100 ? 'var(--red)' : pctN>=80 ? 'var(--orange)' : 'var(--green)';
+    html += `<div class="budget-item">
+      <div class="budget-row">
+        <div class="budget-cat">${ICONS[cat]||'📝'} ${cat}</div>
+        <div class="budget-amt"><b>${fmt(act)}</b> / ${fmt(bud)}원 (${pctN}%)</div>
+      </div>
+      <div class="prog-track"><div class="prog-fill" style="width:${pct*100}%;background:${color}"></div></div>
+    </div>`;
+  });
+  html += `</div></div>`;
+  document.getElementById('mainContent').innerHTML = html;
+}
+
+// ── Fixed view ────────────────────────────────────
+function renderFixedView() {
+  const total = fixedItems.reduce((s,i)=>s+i.amount,0);
+  let html = `<div class="fixed-total"><div><div class="fixed-total-label">📌 월 고정비 합계</div></div><div class="fixed-total-val">${fmt(total)}원</div></div>
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">고정 지출 항목</div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div style="cursor:pointer;color:var(--green);font-size:11px;font-weight:700" onclick="registerFixedThisMonth()">📥 이번달 등록</div>
+        <div style="cursor:pointer;color:var(--accent2);font-size:11px;font-weight:700" onclick="openFixedModal(null)">+ 추가</div>
+      </div>
+    </div>
+    <div class="tx-list">`;
+  fixedItems.forEach(item => {
+    const whoBg = WHO_COLORS[item.who] || 'var(--surface2)';
+    const whoTxt = WHO_TEXT[item.who] || 'var(--text2)';
+    html += `<div class="tx-item">
+      <div class="tx-left">
+        <div class="tx-icon" style="background:#2A2460">${ICONS[item.category]||'📌'}</div>
+        <div>
+          <div class="tx-title">${item.name} <span class="badge badge-fixed">고정비</span> <span class="badge" style="background:${whoBg};color:${whoTxt};border:none">${item.who}</span></div>
+          <div class="tx-meta">${item.day}일 · ${item.payment}</div>
+        </div>
+      </div>
+      <div class="tx-right">
+        <div class="tx-amount" style="color:var(--text2)">-${fmt(item.amount)}</div>
+        <button class="del-btn" onclick="openFixedModal(${item.id})" style="color:var(--accent2);font-size:13px">✏️</button>
+        <button class="del-btn" onclick="deleteFixed(${item.id})">✕</button>
+      </div>
+    </div>`;
+  });
+  html += `</div></div>`;
+  document.getElementById('mainContent').innerHTML = html;
+}
+
+function openFixedModal(id) {
+  editingFixedId = id;
+  const item = id ? fixedItems.find(f=>f.id===id) : null;
+  document.getElementById('fixedModalTitle').textContent = id ? '고정비 수정' : '고정비 추가';
+  document.getElementById('fixedName').value = item ? item.name : '';
+  document.getElementById('fixedDay').value = item ? item.day : '';
+  document.getElementById('fixedAmount').value = item ? item.amount : '';
+  selFixedCat = item ? item.category : CATS_EXP[0];
+  selFixedPay = item ? item.payment : '이체';
+  selFixedWho = item ? item.who : WHOS[0];
+  document.getElementById('fixedCatGrid').innerHTML = CATS_EXP.map(c =>
+    `<button class="chip${c===selFixedCat?' active':''}" onclick="selFixedCat='${c}';document.querySelectorAll('#fixedCatGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent.includes('${c}')))">${ICONS[c]||'📝'} ${c}</button>`).join('');
+  document.getElementById('fixedPayGrid').innerHTML = PAYS.map(p =>
+    `<button class="chip${p===selFixedPay?' active':''}" onclick="selFixedPay='${p}';document.querySelectorAll('#fixedPayGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent==='${p}'))">${p}</button>`).join('');
+  document.getElementById('fixedWhoGrid').innerHTML = WHOS.map(w =>
+    `<button class="chip${w===selFixedWho?' active':''}" onclick="selFixedWho='${w}';document.querySelectorAll('#fixedWhoGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent==='${w}'))">${w}</button>`).join('');
+  document.getElementById('fixedModal').classList.add('open');
+}
+
+async function saveFixedItem() {
+  const name = document.getElementById('fixedName').value.trim();
+  const day = parseInt(document.getElementById('fixedDay').value);
+  const amount = parseInt(document.getElementById('fixedAmount').value);
+  if (!name || !day || !amount) { alert('항목명, 결제일, 금액을 입력해주세요'); return; }
+
+  const payload = { name, category: selFixedCat, day, amount, payment: selFixedPay, who: selFixedWho };
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth()+1).padStart(2,'0');
+  const dateStr = `${y}-${m}-${String(Math.min(day, 28)).padStart(2,'0')}`;
+
+  if (editingFixedId) {
+    // fixed_items 업데이트
+    const oldItem = fixedItems.find(f => f.id === editingFixedId);
+    await sb.from('fixed_items').update(payload).eq('id', editingFixedId);
+
+    // 이번 달 해당 항목 거래내역 찾기 (fixed_item_id 우선, 없으면 memo로 fallback)
+    let { data: txs } = await sb.from('transactions')
+      .select('id')
+      .eq('fixed_item_id', editingFixedId)
+      .gte('date', `${y}-${m}-01`)
+      .lte('date', `${y}-${m}-31`);
+
+    if (!txs || txs.length === 0) {
+      // fixed_item_id로 못 찾으면 이전 이름의 memo로 검색
+      const oldMemo = oldItem ? '[자동]' + oldItem.name : null;
+      if (oldMemo) {
+        const { data: memoTxs } = await sb.from('transactions')
+          .select('id')
+          .eq('cost_type', '고정비')
+          .eq('memo', oldMemo)
+          .gte('date', `${y}-${m}-01`)
+          .lte('date', `${y}-${m}-31`)
+          .limit(1);
+        txs = memoTxs;
+      }
+    }
+
+    if (txs && txs.length > 0) {
+      await sb.from('transactions').update({
+        memo: '[자동]' + name, category: selFixedCat,
+        amount, payment: selFixedPay, who: selFixedWho, date: dateStr,
+        fixed_item_id: editingFixedId
+      }).eq('id', txs[0].id);
+      showToast('✅ 수정됐어요');
+    } else {
+      showToast('✅ 저장됐어요. 이번달 반영은 "📥 이번달 등록" 버튼을 눌러주세요');
+    }
+  } else {
+    // 신규 추가 → fixed_items에 추가 후 생성된 id로 거래내역 1건 insert
+    const { data: inserted } = await sb.from('fixed_items').insert([payload]).select();
+    if (inserted && inserted[0]) {
+      await sb.from('transactions').insert([{
+        date: dateStr, type: 'expense', cost_type: '고정비',
+        category: selFixedCat, memo: '[자동]' + name,
+        amount, payment: selFixedPay, who: selFixedWho,
+        fixed_item_id: inserted[0].id
+      }]);
+    }
+    showToast(`✅ ${name} 추가됐어요`);
+  }
+
+  document.getElementById('fixedModal').classList.remove('open');
+  await loadFixedItems();
+  await loadTransactions();
+  renderFixedView();
+}
+
+async function deleteFixed(id) {
+  if (!confirm('삭제할까요?')) return;
+  await sb.from('fixed_items').delete().eq('id', id);
+  // fixed_item_id로 이번 달 거래내역 삭제
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth()+1).padStart(2,'0');
+  const { data: txs } = await sb.from('transactions')
+    .select('id')
+    .eq('fixed_item_id', id)
+    .gte('date', `${y}-${m}-01`)
+    .lte('date', `${y}-${m}-31`);
+  if (txs && txs.length > 0) {
+    await sb.from('transactions').delete().in('id', txs.map(t => t.id));
+  }
+  await loadFixedItems();
+  await loadTransactions();
+  renderFixedView();
+  showToast('🗑 삭제됐어요');
+}
+
+document.getElementById('fixedModal').addEventListener('click', e => {
+  if (e.target===document.getElementById('fixedModal')) document.getElementById('fixedModal').classList.remove('open');
+});
+
+// ── Edit Transaction ──────────────────────────────
+function editTx(id) {
+  const tx = allTxs.find(t => t.id === id);
+  if (!tx) return;
+  editingTxId = id;
+
+  // 타입 설정
+  selectType(tx.type);
+
+  // 비용유형 설정
+  if (tx.type === 'expense') {
+    selectCostType(tx.cost_type || '변동비');
+  }
+
+  // 금액, 메모, 날짜
+  document.getElementById('amountInput').value = tx.amount.toLocaleString('ko-KR');
+  document.getElementById('memoInput').value = tx.memo || '';
+  document.getElementById('dateInput').value = tx.date;
+
+  // who, category, payment 칩 렌더링 후 선택
+  selWho = tx.who || WHOS[0];
+  document.getElementById('whoGrid').innerHTML = WHOS.map(w =>
+    `<button class="chip${w===selWho?' active':''}" onclick="selWho='${w}';document.querySelectorAll('#whoGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent==='${w}'))">${w}</button>`
+  ).join('');
+
+  const cats = tx.type === 'income' ? CATS_INC : CATS_EXP;
+  selCat = tx.category || cats[0];
+  document.getElementById('catGrid').innerHTML = cats.map(c =>
+    `<button class="chip${c===selCat?' active':''}" onclick="selCat='${c}';document.querySelectorAll('#catGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent.includes('${c}')))">${ICONS[c]||'📝'} ${c}</button>`
+  ).join('');
+
+  selPay = tx.payment || PAYS[0];
+  document.getElementById('payGrid').innerHTML = PAYS.map(p =>
+    `<button class="chip${p===selPay?' active':''}" onclick="selPay='${p}';document.querySelectorAll('#payGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent==='${p}'))">${p}</button>`
+  ).join('');
+
+  // 모달 제목, 버튼 텍스트 변경
+  document.querySelector('#txModal .modal-title').textContent = '거래 수정';
+  document.querySelector('#txModal .submit-btn').textContent = '수정하기';
+
+  document.getElementById('txModal').classList.add('open');
+}
+
+// ── Add Transaction ───────────────────────────────
+document.getElementById('fabBtn').addEventListener('click', () => {
+  editingTxId = null;
+  const today = new Date();
+  today.setFullYear(currentYear); today.setMonth(currentMonth);
+  document.getElementById('dateInput').value = today.toISOString().slice(0,10);
+  document.getElementById('amountInput').value = '';
+  document.getElementById('memoInput').value = '';
+  selectType('expense');
+  selectCostType('변동비');
+  renderWhoGrid(); renderCatGrid(); renderPayGrid();
+
+  // 모달 제목, 버튼 텍스트 원복
+  document.querySelector('#txModal .modal-title').textContent = '거래 추가';
+  document.querySelector('#txModal .submit-btn').textContent = '저장하기';
+
+  document.getElementById('txModal').classList.add('open');
+});
+document.getElementById('txModal').addEventListener('click', e => { if(e.target===document.getElementById('txModal')) document.getElementById('txModal').classList.remove('open'); });
+
+function selectType(type) {
+  txType = type;
+  document.getElementById('seg-expense').classList.toggle('active', type==='expense');
+  document.getElementById('seg-income').classList.toggle('active', type==='income');
+  document.getElementById('costTypeGroup').style.display = type==='expense' ? '' : 'none';
+  renderCatGrid();
+}
+function selectCostType(t) {
+  costType = t;
+  document.getElementById('seg-fixed').classList.toggle('active', t==='고정비');
+  document.getElementById('seg-variable').classList.toggle('active', t==='변동비');
+}
+function renderWhoGrid() {
+  selWho = WHOS[0];
+  document.getElementById('whoGrid').innerHTML = WHOS.map(w =>
+    `<button class="chip${w===selWho?' active':''}" onclick="selWho='${w}';document.querySelectorAll('#whoGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent==='${w}'))">${w}</button>`
+  ).join('');
+}
+function renderCatGrid() {
+  const cats = txType==='income' ? CATS_INC : CATS_EXP;
+  selCat = cats[0];
+  document.getElementById('catGrid').innerHTML = cats.map(c =>
+    `<button class="chip${c===selCat?' active':''}" onclick="selCat='${c}';document.querySelectorAll('#catGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent.includes('${c}')))">${ICONS[c]||'📝'} ${c}</button>`
+  ).join('');
+}
+function renderPayGrid() {
+  document.getElementById('payGrid').innerHTML = PAYS.map(p =>
+    `<button class="chip${p===selPay?' active':''}" onclick="selPay='${p}';document.querySelectorAll('#payGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent==='${p}'))">${p}</button>`
+  ).join('');
+}
+
+async function addTransaction() {
+  const amount = getAmountValue();
+  if (!amount || amount <= 0) { alert('금액을 입력해주세요'); return; }
+  const btn = document.querySelector('#txModal .submit-btn');
+  const isEdit = !!editingTxId;
+  btn.textContent = isEdit ? '수정 중...' : '저장 중...'; btn.disabled = true;
+
+  const payload = {
+    date: document.getElementById('dateInput').value,
+    type: txType,
+    cost_type: txType==='income' ? '수입' : costType,
+    category: selCat,
+    memo: document.getElementById('memoInput').value,
+    amount: amount,
+    payment: selPay,
+    who: selWho
+  };
+
+  try {
+    if (isEdit) {
+      const { error } = await sb.from('transactions').update(payload).eq('id', editingTxId);
+      if (error) throw error;
+      showToast('✅ 수정됐어요');
+    } else {
+      const { error } = await sb.from('transactions').insert([payload]);
+      if (error) throw error;
+    }
+    editingTxId = null;
+    document.getElementById('txModal').classList.remove('open');
+  } catch(e) {
+    alert('저장 실패: ' + e.message);
+  } finally {
+    btn.textContent = isEdit ? '수정하기' : '저장하기'; btn.disabled = false;
+  }
+}
+
+async function deleteTx(id) {
+  if (!confirm('삭제할까요?')) return;
+  await sb.from('transactions').delete().eq('id', id);
+  allTxs = allTxs.filter(t => t.id !== id);
+  render();
+}
+
+// ── Budget modal ──────────────────────────────────
+function openBudgetModal() {
+  document.getElementById('budgetEditContent').innerHTML = CATS_EXP.map(cat => `
+    <div class="form-group">
+      <label class="form-label">${ICONS[cat]||'📝'} ${cat}</label>
+      <input class="form-input" type="number" id="bud_${cat}" value="${budgets[cat]||0}" inputmode="numeric">
+    </div>`).join('');
+  document.getElementById('budgetModal').classList.add('open');
+}
+document.getElementById('budgetModal').addEventListener('click', e => { if(e.target===document.getElementById('budgetModal')) document.getElementById('budgetModal').classList.remove('open'); });
+function saveBudgets() {
+  CATS_EXP.forEach(cat => { budgets[cat] = parseInt(document.getElementById(`bud_${cat}`).value)||0; });
+  localStorage.setItem('budgets_v2', JSON.stringify(budgets));
+  document.getElementById('budgetModal').classList.remove('open');
+  render();
+}
+
+// ── Swipe to change month ────────────────────────
+(function() {
+  let startX = 0, startY = 0, swiping = false;
+  const content = document.getElementById('mainContent');
+  content.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    swiping = true;
+  }, { passive: true });
+  content.addEventListener('touchend', e => {
+    if (!swiping) return;
+    swiping = false;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0) {
+        // swipe left → next month
+        if (currentMonth === 11) { currentMonth = 0; currentYear++; document.getElementById('yearLabel').textContent = currentYear + '년'; }
+        else { currentMonth++; }
+      } else {
+        // swipe right → prev month
+        if (currentMonth === 0) { currentMonth = 11; currentYear--; document.getElementById('yearLabel').textContent = currentYear + '년'; }
+        else { currentMonth--; }
+      }
+      renderMonthTabs();
+      render();
+    }
+  }, { passive: true });
+})();
+
+// ── Amount input formatting ──────────────────────
+function formatAmountInput(el) {
+  const raw = el.value.replace(/[^0-9]/g, '');
+  el.value = raw ? parseInt(raw).toLocaleString('ko-KR') : '';
+}
+function getAmountValue() {
+  return parseInt(document.getElementById('amountInput').value.replace(/[^0-9]/g, '')) || 0;
+}
+
+// ── Navigation history ───────────────────────────
+function pushCalMode(mode) {
+  viewHistory.push({ calMode, calSelectedWho, calSelectedCat, selectedCalDay });
+  calMode = mode;
+  render();
+}
+function goBack() {
+  if (viewHistory.length === 0) return;
+  const prev = viewHistory.pop();
+  calMode = prev.calMode;
+  calSelectedWho = prev.calSelectedWho;
+  calSelectedCat = prev.calSelectedCat;
+  selectedCalDay = prev.selectedCalDay;
+  render();
+}
+
+// ── Calendar / Analysis section ──────────────────
+function renderCalSection(year, month, txs) {
+  const expTxs = txs.filter(t => t.type === 'expense');
+  const incTxs = txs.filter(t => t.type === 'income');
+  const isExp = calTxType === 'expense';
+  const filteredTxs = isExp ? expTxs : incTxs;
+  const typeLabel = isExp ? '지출' : '수입';
+
+  let html = `<div class="cal-card">`;
+  html += `<div class="cal-header">
+    <div class="cal-title" style="margin-bottom:0">`;
+  if (viewHistory.length > 0) {
+    html += `<span onclick="goBack()" style="cursor:pointer;margin-right:6px;color:var(--accent2)">‹</span>`;
+  }
+  if (calMode === 'calendar') html += `📆 ${MONTHS[month]} 수입/지출 달력`;
+  else if (calMode === 'who') html += `👥 ${MONTHS[month]} 구성원별 ${typeLabel}`;
+  else if (calMode === 'who-detail') html += `👤 ${calSelectedWho} ${typeLabel} 내역`;
+  else if (calMode === 'category') html += `📊 ${MONTHS[month]} 카테고리별 ${typeLabel}`;
+  else if (calMode === 'cat-detail') html += `${ICONS[calSelectedCat]||'📝'} ${calSelectedCat} ${typeLabel} 내역`;
+  html += `</div>
+    <div class="cal-header-icons">
+      <div class="cal-icon-btn${calMode==='calendar'?' active':''}" onclick="calMode='calendar';viewHistory=[];selectedCalDay=null;render()">📆</div>
+      <div class="cal-icon-btn${calMode.startsWith('who')?' active':''}" onclick="calMode='who';viewHistory=[];calSelectedWho=null;render()">👥</div>
+      <div class="cal-icon-btn${calMode.startsWith('cat')?' active':''}" onclick="calMode='category';viewHistory=[];calSelectedCat=null;render()">📊</div>
+    </div>
+  </div>`;
+
+  // 구성원/카테고리 뷰에서 지출/수입 토글 표시
+  if (calMode !== 'calendar') {
+    html += `<div style="display:flex;gap:4px;margin-bottom:10px">
+      <button onclick="calTxType='expense';render()" style="flex:1;padding:6px;border-radius:8px;border:1px solid ${isExp?'var(--red)':'var(--border)'};background:${isExp?'rgba(240,96,96,0.15)':'var(--surface2)'};color:${isExp?'var(--red)':'var(--text3)'};font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">🔴 지출</button>
+      <button onclick="calTxType='income';render()" style="flex:1;padding:6px;border-radius:8px;border:1px solid ${!isExp?'var(--green)':'var(--border)'};background:${!isExp?'rgba(46,204,138,0.15)':'var(--surface2)'};color:${!isExp?'var(--green)':'var(--text3)'};font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">💚 수입</button>
+    </div>`;
+  }
+
+  if (calMode === 'calendar') {
+    html += renderCalGrid(year, month, txs);
+  } else if (calMode === 'who') {
+    html += renderWhoChart(filteredTxs);
+  } else if (calMode === 'who-detail') {
+    html += renderWhoDetail(filteredTxs);
+  } else if (calMode === 'category') {
+    html += renderCatAnalysis(filteredTxs);
+  } else if (calMode === 'cat-detail') {
+    html += renderCatDetail(filteredTxs);
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function renderCalGrid(year, month, txs) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDow = new Date(year, month, 1).getDay();
+  const today = new Date();
+  const isThisMonth = today.getFullYear() === year && today.getMonth() === month;
+  const todayDate = today.getDate();
+
+  const dailyExp = {}, dailyInc = {};
+  txs.forEach(tx => {
+    const day = parseInt(tx.date.slice(8, 10));
+    if (tx.type === 'expense') dailyExp[day] = (dailyExp[day] || 0) + tx.amount;
+    else dailyInc[day] = (dailyInc[day] || 0) + tx.amount;
+  });
+
+  const dows = ['일','월','화','수','목','금','토'];
+  let html = `<div class="cal-grid">`;
+  dows.forEach(d => { html += `<div class="cal-dow">${d}</div>`; });
+  for (let i = 0; i < firstDow; i++) {
+    html += `<div class="cal-cell empty"><div class="cal-day">&nbsp;</div></div>`;
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const isToday = isThisMonth && d === todayDate;
+    const isSel = selectedCalDay === d;
+    const exp = dailyExp[d];
+    const inc = dailyInc[d];
+    html += `<div class="cal-cell${isToday ? ' today' : ''}${isSel ? ' selected' : ''}" onclick="selectCalDay(${d})">`;
+    html += `<div class="cal-day">${d}</div>`;
+    if (inc) html += `<div class="cal-amt income">+${fmt(inc)}</div>`;
+    if (exp) html += `<div class="cal-amt">-${fmt(exp)}</div>`;
+    html += `</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+// ── Who bar chart ────────────────────────────────
+function renderWhoChart(filteredTxs) {
+  const whoAmts = {};
+  const WHO_BAR_COLORS = { '남편':'#5B6EF5', '아내':'#E85D8A', '딸':'#2ECC8A', '시댁':'#A78BFA', '처가':'#F5A623', '우리':'#5BCCCC' };
+  filteredTxs.forEach(tx => { whoAmts[tx.who] = (whoAmts[tx.who] || 0) + tx.amount; });
+  const maxAmt = Math.max(...Object.values(whoAmts), 1);
+  let html = `<div class="who-chart">`;
+  WHOS.forEach(w => {
+    const amt = whoAmts[w] || 0;
+    if (!amt) return;
+    const pct = Math.max(amt / maxAmt * 100, 3);
+    const color = WHO_BAR_COLORS[w] || 'var(--accent)';
+    html += `<div class="who-bar-row" onclick="calSelectedWho='${w}';pushCalMode('who-detail')">
+      <div class="who-bar-name">${w}</div>
+      <div class="who-bar-track"><div class="who-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <div class="who-bar-amt">${fmt(amt)}원</div>
+    </div>`;
+  });
+  if (!Object.keys(whoAmts).length) html += `<div style="text-align:center;color:var(--text3);font-size:12px;padding:16px">${calTxType==='expense'?'지출':'수입'} 내역이 없어요</div>`;
+  html += `</div>`;
+  return html;
+}
+
+// ── Who detail (category breakdown) ──────────────
+function renderWhoDetail(filteredTxs) {
+  const whoTxs = filteredTxs.filter(t => t.who === calSelectedWho);
+  const catAmts = {};
+  whoTxs.forEach(tx => { catAmts[tx.category] = (catAmts[tx.category] || 0) + tx.amount; });
+  const total = whoTxs.reduce((s, t) => s + t.amount, 0);
+  const isExp = calTxType === 'expense';
+  const label = isExp ? '총 지출' : '총 수입';
+  const color = isExp ? 'var(--red)' : 'var(--green)';
+
+  let html = `<div style="font-size:12px;color:var(--text2);margin-bottom:10px">${label} <b style="color:${color}">${fmt(total)}원</b> · ${whoTxs.length}건</div>`;
+  const sorted = Object.entries(catAmts).sort((a, b) => b[1] - a[1]);
+  const maxAmt = sorted.length ? sorted[0][1] : 1;
+  html += `<div class="who-chart">`;
+  sorted.forEach(([cat, amt]) => {
+    const pct = Math.max(amt / maxAmt * 100, 3);
+    html += `<div class="who-bar-row">
+      <div class="who-bar-name" style="font-size:14px">${ICONS[cat] || '📝'}</div>
+      <div class="who-bar-track"><div class="who-bar-fill" style="width:${pct}%;background:var(--accent)">${cat}</div></div>
+      <div class="who-bar-amt">${fmt(amt)}원</div>
+    </div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+// ── Category grid (analysis view) ────────────────
+function renderCatAnalysis(expTxs) {
+  const catAmts = {};
+  expTxs.forEach(tx => { catAmts[tx.category] = (catAmts[tx.category] || 0) + tx.amount; });
+  const sorted = Object.entries(catAmts).sort((a, b) => b[1] - a[1]);
+
+  if (!sorted.length) return `<div style="text-align:center;color:var(--text3);font-size:12px;padding:16px">${calTxType==='expense'?'지출':'수입'} 내역이 없어요</div>`;
+
+  let html = `<div class="cat-grid">`;
+  sorted.forEach(([cat, amt]) => {
+    html += `<div class="cat-box" onclick="calSelectedCat='${cat}';pushCalMode('cat-detail')">
+      <div class="cat-box-icon">${ICONS[cat] || '📝'}</div>
+      <div class="cat-box-name">${cat}</div>
+      <div class="cat-box-amt">${fmt(amt)}</div>
+    </div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+// ── Category detail ──────────────────────────────
+function renderCatDetail(filteredTxs) {
+  const catTxs = filteredTxs.filter(t => t.category === calSelectedCat);
+  const total = catTxs.reduce((s, t) => s + t.amount, 0);
+  const isExp = calTxType === 'expense';
+  const label = isExp ? '총 지출' : '총 수입';
+  const color = isExp ? 'var(--red)' : 'var(--green)';
+
+  let html = `<div style="font-size:12px;color:var(--text2);margin-bottom:10px">${label} <b style="color:${color}">${fmt(total)}원</b> · ${catTxs.length}건</div>`;
+  html += `<div class="tx-list">`;
+  catTxs.forEach(tx => {
+    const whoBg = WHO_COLORS[tx.who] || 'var(--surface2)';
+    const whoTxt = WHO_TEXT[tx.who] || 'var(--text2)';
+    const typeBadge = isExp ? `<span class="badge ${tx.cost_type === '고정비' ? 'badge-fixed' : 'badge-var'}">${tx.cost_type}</span>` : '';
+    const sign = isExp ? '-' : '+';
+    const amtColor = isExp ? 'var(--text)' : 'var(--green)';
+    html += `<div class="tx-item">
+      <div class="tx-left"><div><div class="tx-title">${tx.memo || tx.category} ${typeBadge} <span class="badge" style="background:${whoBg};color:${whoTxt};border:none">${tx.who}</span></div>
+        <div class="tx-meta">${tx.payment} · ${String(tx.date).slice(5)}</div></div></div>
+      <div class="tx-right"><div class="tx-amount" style="color:${amtColor}">${sign}${fmt(tx.amount)}</div></div>
+    </div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+// ── Calendar day select ──────────────────────────
+function selectCalDay(day) {
+  selectedCalDay = (selectedCalDay === day) ? null : day;
+  render();
+}
+
+function renderDayDetail(year, month, txs) {
+  if (selectedCalDay === null) return '';
+  const dayStr = String(selectedCalDay).padStart(2, '0');
+  const monthStr = String(month + 1).padStart(2, '0');
+  const dayTxs = txs.filter(tx => {
+    const d = new Date(tx.date);
+    return d.getFullYear() === year && d.getMonth() === month && d.getDate() === selectedCalDay;
+  });
+
+  const totalExp = dayTxs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const totalInc = dayTxs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+
+  let html = `<div class="cal-day-detail">
+    <div class="cal-day-detail-header">
+      <div class="cal-day-detail-title">${monthStr}/${dayStr} 내역${dayTxs.length ? ` · ${dayTxs.length}건` : ''}</div>
+      <button class="cal-day-detail-close" onclick="selectedCalDay=null;render()">✕</button>
+    </div>`;
+
+  if (!dayTxs.length) {
+    html += `<div style="text-align:center;color:var(--text3);font-size:12px;padding:10px 0">내역이 없어요</div>`;
+  } else {
+    if (totalInc) html += `<div style="font-size:11px;color:var(--green);margin-bottom:6px">수입 +${fmt(totalInc)}원</div>`;
+    if (totalExp) html += `<div style="font-size:11px;color:var(--red);margin-bottom:8px">지출 -${fmt(totalExp)}원</div>`;
+    html += `<div class="tx-list">`;
+    dayTxs.forEach(tx => {
+      const icon = ICONS[tx.category] || '📝';
+      const iconBg = tx.type === 'income' ? '#1A3D2E' : (tx.cost_type === '고정비' ? '#2A2460' : '#2A1A00');
+      const amtColor = tx.type === 'income' ? 'var(--green)' : 'var(--text)';
+      const amtSign = tx.type === 'income' ? '+' : '-';
+      const typeBadge = tx.type === 'expense' ? `<span class="badge ${tx.cost_type === '고정비' ? 'badge-fixed' : 'badge-var'}">${tx.cost_type}</span>` : '';
+      const whoBg = WHO_COLORS[tx.who] || 'var(--surface2)';
+      const whoTxt = WHO_TEXT[tx.who] || 'var(--text2)';
+      html += `<div class="tx-item">
+        <div class="tx-left">
+          <div class="tx-icon" style="background:${iconBg}">${icon}</div>
+          <div>
+            <div class="tx-title">${tx.category} ${typeBadge} <span class="badge" style="background:${whoBg};color:${whoTxt};border:none">${tx.who}</span></div>
+            <div class="tx-meta">${tx.memo || ''} · ${tx.payment}</div>
+          </div>
+        </div>
+        <div class="tx-right">
+          <div class="tx-amount" style="color:${amtColor}">${amtSign}${fmt(tx.amount)}</div>
+          <button class="del-btn" onclick="editTx(${tx.id})" style="color:var(--accent2);font-size:13px">✏️</button>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+</script>
+</body>
+</html>
