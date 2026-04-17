@@ -552,7 +552,7 @@ function renderMonthly() {
   const fixed   = allMonthTxs.filter(t=>t.type==='expense'&&t.cost_type==='고정비').reduce((s,t)=>s+t.amount,0);
   const variable= allMonthTxs.filter(t=>t.type==='expense'&&t.cost_type==='변동비').reduce((s,t)=>s+t.amount,0);
   const balance = income - expense;
-  const SAVING_CATS = ['저축','보험'];
+  const SAVING_CATS = ['저축'];
   const savingExp = allMonthTxs.filter(t=>t.type==='expense'&&SAVING_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
   const pureExpense = expense - savingExp;
   const savingRate = income > 0 ? Math.round((income-expense)/income*100) : 0;
@@ -719,7 +719,7 @@ function renderBudgetView() {
 // ── Fixed view ────────────────────────────────────
 function renderFixedView() {
   const total = fixedItems.reduce((s,i)=>s+i.amount,0);
-  const SAVING_CATS = ['저축','보험'];
+  const SAVING_CATS = ['저축'];
   const savingTotal = fixedItems.filter(i => SAVING_CATS.includes(i.category)).reduce((s,i)=>s+i.amount,0);
   const pureExpense = total - savingTotal;
   let html = `<div class="fixed-total">
