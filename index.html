@@ -366,10 +366,10 @@ const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','
 const WHOS = ['남편','아내','딸','시댁','처가','우리'];
 const WHO_COLORS = { '남편':'#1E3A5F', '아내':'#5F1E3A', '딸':'#1E5F3A', '시댁':'#3A1E5F', '처가':'#5F3A1E', '우리':'#1A4040' };
 const WHO_TEXT = { '남편':'#7BAADF', '아내':'#DF7BAA', '딸':'#7BDFAA', '시댁':'#AA7BDF', '처가':'#DFAA7B', '우리':'#7BDFDF' };
-const CATS_EXP = ['식비','생필품','교통','통신','외식','의료','쇼핑','주거','문화','저축','보험','구독','정기결제','용돈-남편','용돈-아내','육아','경조사','취미','자기계발','기타'];
+const CATS_EXP = ['식비','생필품','교통','통신','외식','의료','쇼핑','주거','문화','저축','보험','구독','정기결제','용돈-남편','용돈-아내','자동차','육아','경조사','취미','자기계발','기타'];
 const CATS_INC = ['급여','부수입','용돈','상여금','이자','기타'];
 const PAYS = ['카드','체크카드','현금','이체','자동이체'];
-const ICONS = { '식비':'🛒','생필품':'🧴','교통':'🚌','통신':'📱','외식':'🍽️','의료':'💊','쇼핑':'👜','주거':'🏠','문화':'🎬','저축':'💰','보험':'🛡️','구독':'📺','정기결제':'💳','용돈-남편':'💙','용돈-아내':'💗','육아':'👶','경조사':'🎊','취미':'🎯','자기계발':'📚','기타':'📝','급여':'💵','부수입':'💼','용돈':'🎁','상여금':'🎉','이자':'🏦' };
+const ICONS = { '식비':'🛒','생필품':'🧴','교통':'🚌','통신':'📱','외식':'🍽️','의료':'💊','쇼핑':'👜','주거':'🏠','문화':'🎬','저축':'💰','보험':'🛡️','구독':'📺','정기결제':'💳','용돈-남편':'💙','용돈-아내':'💗','자동차':'🚗','육아':'👶','경조사':'🎊','취미':'🎯','자기계발':'📚','기타':'📝','급여':'💵','부수입':'💼','용돈':'🎁','상여금':'🎉','이자':'🏦' };
 
 // ── State ─────────────────────────────────────────
 let currentYear = new Date().getFullYear();
@@ -383,6 +383,7 @@ let selPay = '카드';
 let filterWho = '전체';
 let allTxs = [];
 let budgets = JSON.parse(localStorage.getItem('budgets_v2') || '{"식비":200000,"생필품":100000,"교통":60000,"통신":60000,"외식":100000,"의료":50000,"쇼핑":150000,"주거":600000,"문화":80000,"저축":500000,"보험":130000,"구독":32000,"육아":0,"경조사":0,"취미":0,"자기계발":0,"기타":100000}');
+let budgetOrder = JSON.parse(localStorage.getItem('budgetOrder_v2') || 'null') || Object.keys(budgets);
 let fixedItems = JSON.parse(localStorage.getItem('fixedItems_v2') || 'null') || [
   {id:1, name:'월세', cat:'주거', day:20, amount:600000, pay:'이체', who:'남편'},
   {id:2, name:'핸드폰(남편)', cat:'통신', day:25, amount:55000, pay:'자동이체', who:'남편'},
@@ -551,13 +552,16 @@ function renderMonthly() {
   const fixed   = allMonthTxs.filter(t=>t.type==='expense'&&t.cost_type==='고정비').reduce((s,t)=>s+t.amount,0);
   const variable= allMonthTxs.filter(t=>t.type==='expense'&&t.cost_type==='변동비').reduce((s,t)=>s+t.amount,0);
   const balance = income - expense;
+  const SAVING_CATS = ['저축','보험'];
+  const savingExp = allMonthTxs.filter(t=>t.type==='expense'&&SAVING_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
+  const pureExpense = expense - savingExp;
   const savingRate = income > 0 ? Math.round((income-expense)/income*100) : 0;
   const fPct = expense > 0 ? Math.round(fixed/expense*100) : 0;
 
   let html = `
   <div class="kpi-grid">
     <div class="kpi-card"><div class="kpi-label">💚 수입</div><div class="kpi-value" style="color:var(--green)">${fmt(income)}</div><div class="kpi-sub">원</div></div>
-    <div class="kpi-card"><div class="kpi-label">🔴 지출</div><div class="kpi-value" style="color:var(--red)">${fmt(expense)}</div><div class="kpi-sub">원</div></div>
+    <div class="kpi-card"><div class="kpi-label">🔴 지출</div><div class="kpi-value" style="color:var(--red)">${fmt(expense)}</div><div class="kpi-sub">순수 ${fmt(pureExpense)} + 저축 ${fmt(savingExp)}</div></div>
     <div class="kpi-card"><div class="kpi-label">💙 잔액</div><div class="kpi-value" style="color:${balance>=0?'var(--accent2)':'var(--red)'}">${balance>=0?'+':'-'}${fmt(balance)}</div><div class="kpi-sub">원</div></div>
     <div class="kpi-card"><div class="kpi-label">⭐ 저축률</div><div class="kpi-value" style="color:var(--yellow)">${savingRate}%</div><div class="kpi-sub">목표 20%</div></div>
   </div>
@@ -576,7 +580,7 @@ function renderMonthly() {
 
   <div class="budget-mini">
     <div class="budget-mini-title"><span>🎯 이번달 예산 현황</span><span style="cursor:pointer;color:var(--accent2)" onclick="switchView('budget')">전체보기 ›</span></div>
-    ${CATS_EXP.map(cat => {
+    ${budgetOrder.map(cat => {
       const bud = budgets[cat] || 0;
       const act = allMonthTxs.filter(t=>t.type==='expense'&&t.category===cat).reduce((s,t)=>s+t.amount,0);
       if (!bud) return '';
@@ -693,7 +697,7 @@ function renderAnnual() {
 function renderBudgetView() {
   const txs = getMonthTxs(currentYear, currentMonth);
   let html = `<div class="section"><div class="section-header"><div class="section-title">예산 현황 · ${MONTHS[currentMonth]}</div><div class="section-badge" style="cursor:pointer;color:var(--accent2)" onclick="openBudgetModal()">✏️ 수정</div></div><div class="budget-list">`;
-  CATS_EXP.forEach(cat => {
+  budgetOrder.forEach(cat => {
     const bud = budgets[cat] || 0;
     const act = txs.filter(t=>t.type==='expense'&&t.category===cat).reduce((s,t)=>s+t.amount,0);
     if (!bud && !act) return;
@@ -715,7 +719,22 @@ function renderBudgetView() {
 // ── Fixed view ────────────────────────────────────
 function renderFixedView() {
   const total = fixedItems.reduce((s,i)=>s+i.amount,0);
-  let html = `<div class="fixed-total"><div><div class="fixed-total-label">📌 월 고정비 합계</div></div><div class="fixed-total-val">${fmt(total)}원</div></div>
+  const SAVING_CATS = ['저축','보험'];
+  const savingTotal = fixedItems.filter(i => SAVING_CATS.includes(i.category)).reduce((s,i)=>s+i.amount,0);
+  const pureExpense = total - savingTotal;
+  let html = `<div class="fixed-total">
+    <div><div class="fixed-total-label">📌 월 고정비 합계</div></div><div class="fixed-total-val">${fmt(total)}원</div>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:14px">
+    <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:11px">
+      <div style="font-size:10px;color:var(--text2);margin-bottom:3px">💸 순수 지출</div>
+      <div style="font-size:16px;font-weight:800;color:var(--red)">${fmt(pureExpense)}원</div>
+    </div>
+    <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:11px">
+      <div style="font-size:10px;color:var(--text2);margin-bottom:3px">💰 저축성 지출</div>
+      <div style="font-size:16px;font-weight:800;color:var(--green)">${fmt(savingTotal)}원</div>
+    </div>
+  </div>
   <div class="section">
     <div class="section-header">
       <div class="section-title">고정 지출 항목</div>
@@ -998,18 +1017,101 @@ async function deleteTx(id) {
 }
 
 // ── Budget modal ──────────────────────────────────
+let dragBudgetIdx = null;
+
 function openBudgetModal() {
-  document.getElementById('budgetEditContent').innerHTML = CATS_EXP.map(cat => `
-    <div class="form-group">
-      <label class="form-label">${ICONS[cat]||'📝'} ${cat}</label>
-      <input class="form-input" type="number" id="bud_${cat}" value="${budgets[cat]||0}" inputmode="numeric">
-    </div>`).join('');
+  renderBudgetEditor();
   document.getElementById('budgetModal').classList.add('open');
 }
+
+function renderBudgetEditor() {
+  let html = `<div id="budgetList">`;
+  budgetOrder.forEach((cat, idx) => {
+    html += `<div class="form-group" draggable="true" data-bidx="${idx}" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:grab">
+      <span style="font-size:16px;cursor:grab;color:var(--text3)"
+        ontouchstart="dragBudgetIdx=${idx}" ontouchmove="budgetTouchMove(event)" ontouchend="budgetTouchEnd(event)">☰</span>
+      <span style="font-size:12px;min-width:70px;white-space:nowrap">${ICONS[cat]||'📝'} ${cat}</span>
+      <input class="form-input" type="text" id="bud_${idx}" value="${(budgets[cat]||0).toLocaleString('ko-KR')}" inputmode="numeric" oninput="formatAmountInput(this)" style="flex:1;padding:8px 10px;font-size:14px">
+      <button onclick="removeBudgetItem(${idx})" style="background:none;border:none;color:var(--red);font-size:16px;cursor:pointer;padding:4px">✕</button>
+    </div>`;
+  });
+  html += `</div>`;
+  // 추가 드롭다운
+  const available = CATS_EXP.filter(c => !budgetOrder.includes(c));
+  if (available.length) {
+    html += `<div style="margin-top:10px;display:flex;gap:6px">
+      <select id="budgetAddSelect" class="form-input" style="flex:1;padding:8px;font-size:13px">
+        ${available.map(c => `<option value="${c}">${ICONS[c]||'📝'} ${c}</option>`).join('')}
+      </select>
+      <button onclick="addBudgetItem()" style="background:var(--accent);color:white;border:none;border-radius:9px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">추가</button>
+    </div>`;
+  }
+  document.getElementById('budgetEditContent').innerHTML = html;
+
+  // Desktop drag events
+  document.querySelectorAll('#budgetList [draggable]').forEach(el => {
+    el.addEventListener('dragstart', e => { dragBudgetIdx = parseInt(el.dataset.bidx); el.style.opacity = '0.4'; });
+    el.addEventListener('dragend', e => { el.style.opacity = '1'; });
+    el.addEventListener('dragover', e => { e.preventDefault(); });
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      const toIdx = parseInt(el.dataset.bidx);
+      if (dragBudgetIdx !== null && dragBudgetIdx !== toIdx) {
+        const [moved] = budgetOrder.splice(dragBudgetIdx, 1);
+        budgetOrder.splice(toIdx, 0, moved);
+        renderBudgetEditor();
+      }
+    });
+  });
+}
+
+function budgetTouchMove(e) {
+  e.preventDefault();
+}
+function budgetTouchEnd(e) {
+  if (dragBudgetIdx === null) return;
+  const touch = e.changedTouches[0];
+  const els = document.querySelectorAll('#budgetList [draggable]');
+  let toIdx = dragBudgetIdx;
+  els.forEach(el => {
+    const rect = el.getBoundingClientRect();
+    if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+      toIdx = parseInt(el.dataset.bidx);
+    }
+  });
+  if (dragBudgetIdx !== toIdx) {
+    const [moved] = budgetOrder.splice(dragBudgetIdx, 1);
+    budgetOrder.splice(toIdx, 0, moved);
+    renderBudgetEditor();
+  }
+  dragBudgetIdx = null;
+}
+
+function addBudgetItem() {
+  const sel = document.getElementById('budgetAddSelect');
+  if (!sel) return;
+  const cat = sel.value;
+  budgetOrder.push(cat);
+  budgets[cat] = budgets[cat] || 0;
+  renderBudgetEditor();
+}
+
+function removeBudgetItem(idx) {
+  const cat = budgetOrder[idx];
+  budgetOrder.splice(idx, 1);
+  delete budgets[cat];
+  renderBudgetEditor();
+}
+
 document.getElementById('budgetModal').addEventListener('click', e => { if(e.target===document.getElementById('budgetModal')) document.getElementById('budgetModal').classList.remove('open'); });
+
 function saveBudgets() {
-  CATS_EXP.forEach(cat => { budgets[cat] = parseInt(document.getElementById(`bud_${cat}`).value)||0; });
+  budgetOrder.forEach((cat, idx) => {
+    const el = document.getElementById(`bud_${idx}`);
+    budgets[cat] = el ? (parseInt(el.value.replace(/[^0-9]/g, '')) || 0) : (budgets[cat] || 0);
+  });
   localStorage.setItem('budgets_v2', JSON.stringify(budgets));
+  localStorage.setItem('budgetOrder_v2', JSON.stringify(budgetOrder));
   document.getElementById('budgetModal').classList.remove('open');
   render();
 }
