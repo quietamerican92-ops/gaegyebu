@@ -1,7 +1,7 @@
 {
   "name": "우리 가계부",
   "short_name": "가계부",
-  "start_url": "./가계부_공유 (8).html",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#0F1117",
   "theme_color": "#0F1117",
