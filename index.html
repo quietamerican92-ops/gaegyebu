@@ -227,6 +227,22 @@
   .budget-mini-track { flex: 1; height: 5px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
   .budget-mini-fill { height: 100%; border-radius: 3px; transition: width 0.4s; min-width: 0; }
   .budget-mini-pct { font-size: 10px; color: var(--text3); width: 30px; text-align: right; flex-shrink: 0; }
+
+  /* Assets */
+  .asset-total { background: linear-gradient(135deg, #1E2A5F, #2A1A5F); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+  .asset-total-label { font-size: 11px; color: var(--text2); margin-bottom: 6px; }
+  .asset-total-val { font-size: 26px; font-weight: 900; letter-spacing: -0.5px; }
+  .asset-subtotals { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .asset-sub { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px; }
+  .asset-sub-label { font-size: 10px; color: var(--text2); margin-bottom: 3px; }
+  .asset-sub-val { font-size: 15px; font-weight: 800; }
+  .account-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px; display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+  .account-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  .account-info { flex: 1; min-width: 0; }
+  .account-name { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+  .account-type { font-size: 10px; color: var(--text3); }
+  .account-balance { font-size: 15px; font-weight: 800; text-align: right; }
+  .account-actions { display: flex; gap: 4px; }
 </style>
 </head>
 <body>
@@ -255,6 +271,7 @@
   <div class="nav-btn" onclick="switchView('annual')" id="nav-annual"><div class="nav-icon">📊</div><div class="nav-label">연간</div></div>
   <div class="nav-btn" onclick="switchView('budget')" id="nav-budget"><div class="nav-icon">🎯</div><div class="nav-label">예산</div></div>
   <div class="nav-btn" onclick="switchView('fixed')" id="nav-fixed"><div class="nav-icon">📌</div><div class="nav-label">고정비</div></div>
+  <div class="nav-btn" onclick="switchView('assets')" id="nav-assets"><div class="nav-icon">💵</div><div class="nav-label">자산</div></div>
 </div>
 
 <!-- Add Transaction Modal -->
@@ -301,6 +318,10 @@
     <div class="form-group">
       <label class="form-label">결제수단</label>
       <div class="chip-grid" id="payGrid"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">계좌 (선택)</label>
+      <div class="chip-grid" id="accountGrid"></div>
     </div>
     <button class="submit-btn" onclick="addTransaction()">저장하기</button>
   </div>
@@ -355,6 +376,35 @@
   </div>
 </div>
 
+<!-- Account Modal -->
+<div class="modal-overlay" id="accountModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="modal-title" id="accountModalTitle" style="margin-bottom:0">계좌 추가</div>
+      <button onclick="document.getElementById('accountModal').classList.remove('open')" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;padding:4px 8px">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">계좌명</label>
+      <input class="form-input" type="text" id="accountName" placeholder="예: 국민은행, 쿠팡페이...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">유형</label>
+      <div class="chip-grid" id="accountTypeGrid"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">보유자</label>
+      <div class="chip-grid" id="accountOwnerGrid"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">현재 잔액</label>
+      <input class="form-input" type="text" id="accountBalance" placeholder="0" inputmode="numeric" oninput="formatAmountInput(this)">
+      <div style="font-size:10px;color:var(--text3);margin-top:4px">💡 부채 유형(신용카드/마이너스통장/대출)은 금액만 입력하면 자동으로 음수 처리됩니다</div>
+    </div>
+    <button class="submit-btn" onclick="saveAccount()">저장하기</button>
+  </div>
+</div>
+
 <script>
 // ── Supabase ──────────────────────────────────────
 const SUPABASE_URL = 'https://odexjawwfgvglaborzdn.supabase.co';
@@ -382,8 +432,15 @@ let selWho = '남편';
 let selPay = '카드';
 let filterWho = '전체';
 let allTxs = [];
-let budgets = JSON.parse(localStorage.getItem('budgets_v2') || '{"식비":200000,"생필품":100000,"교통":60000,"통신":60000,"외식":100000,"의료":50000,"쇼핑":150000,"주거":600000,"문화":80000,"저축":500000,"보험":130000,"구독":32000,"육아":0,"경조사":0,"취미":0,"자기계발":0,"기타":100000}');
-let budgetOrder = JSON.parse(localStorage.getItem('budgetOrder_v2') || 'null') || Object.keys(budgets);
+let budgets = {};       // Supabase budgets 테이블에서 로드
+let budgetOrder = [];   // Supabase에서 sort_order 순으로
+let accounts = [];      // Supabase accounts 테이블에서 로드
+let assetGoal = 1000000000; // Supabase settings에서 로드, 기본 10억
+let selAccountId = null; // tx 모달에서 선택한 계좌
+let editingAccountId = null;
+const ACCOUNT_TYPES = ['은행','신용카드','체크카드','현금','선불','투자','부동산','보증금','마이너스통장','대출','기타'];
+const ACCOUNT_ICONS = { '은행':'🏦','신용카드':'💳','체크카드':'💳','현금':'💵','선불':'📱','투자':'📈','부동산':'🏘️','보증금':'🔑','마이너스통장':'📕','대출':'🏚️','기타':'📝' };
+const DEBT_TYPES = ['신용카드','마이너스통장','대출']; // 입력값이 양수여도 음수로 저장되는 부채 유형
 let fixedItems = JSON.parse(localStorage.getItem('fixedItems_v2') || 'null') || [
   {id:1, name:'월세', cat:'주거', day:20, amount:600000, pay:'이체', who:'남편'},
   {id:2, name:'핸드폰(남편)', cat:'통신', day:25, amount:55000, pay:'자동이체', who:'남편'},
@@ -408,10 +465,110 @@ let selFixedCat = '주거', selFixedPay = '이체', selFixedWho = '남편';
 window.addEventListener('load', async () => {
   document.getElementById('yearLabel').textContent = currentYear + '년';
   renderMonthTabs();
+  await loadBudgets();
+  await loadAccounts();
+  await loadSettings();
+  await migrateLocalToSupabase(); // 기존 localStorage 데이터 자동 이전
   await loadFixedItems();
   await loadTransactions();
   setupRealtime();
 });
+
+// ── Budgets ──────────────────────────────────────
+async function loadBudgets() {
+  const { data, error } = await sb.from('budgets').select('*').order('sort_order');
+  if (!error && data) {
+    budgets = {};
+    budgetOrder = [];
+    data.forEach(b => {
+      budgets[b.category] = b.amount;
+      budgetOrder.push(b.category);
+    });
+  }
+}
+
+async function persistBudgets() {
+  // 기존 전부 삭제 후 재삽입 (순서 관리 간단히)
+  await sb.from('budgets').delete().neq('id', 0);
+  const rows = budgetOrder.map((cat, idx) => ({
+    category: cat,
+    amount: budgets[cat] || 0,
+    sort_order: idx
+  }));
+  if (rows.length) await sb.from('budgets').insert(rows);
+}
+
+// ── Accounts ─────────────────────────────────────
+async function loadAccounts() {
+  const { data, error } = await sb.from('accounts').select('*').order('sort_order').order('id');
+  if (!error && data) accounts = data;
+}
+
+// ── Settings ─────────────────────────────────────
+async function loadSettings() {
+  const { data, error } = await sb.from('settings').select('*');
+  if (!error && data) {
+    data.forEach(s => {
+      if (s.key === 'asset_goal') assetGoal = parseInt(s.value) || 1000000000;
+    });
+  }
+}
+
+async function saveSetting(key, value) {
+  await sb.from('settings').upsert({ key, value: String(value) }, { onConflict: 'key' });
+}
+
+// ── localStorage → Supabase 자동 마이그레이션 (1회만) ──
+async function migrateLocalToSupabase() {
+  if (localStorage.getItem('migrated_to_sb_v1') === 'yes') return;
+
+  // 예산 이전
+  const localBudgetsStr = localStorage.getItem('budgets_v2');
+  const localOrderStr = localStorage.getItem('budgetOrder_v2');
+  if (localBudgetsStr && !budgetOrder.length) {
+    const lb = JSON.parse(localBudgetsStr);
+    const lo = JSON.parse(localOrderStr || 'null') || Object.keys(lb);
+    const rows = lo.map((cat, idx) => ({ category: cat, amount: lb[cat] || 0, sort_order: idx }));
+    if (rows.length) {
+      await sb.from('budgets').insert(rows);
+      await loadBudgets();
+    }
+  }
+
+  // 계좌 이전 + txAccountMap 동기화
+  const localAcctsStr = localStorage.getItem('accounts_v1');
+  if (localAcctsStr && !accounts.length) {
+    const la = JSON.parse(localAcctsStr);
+    if (la.length) {
+      const rows = la.map((a, idx) => ({ name: a.name, type: a.type, balance: a.balance, owner: a.owner || null, sort_order: idx }));
+      const { data: inserted } = await sb.from('accounts').insert(rows).select();
+      if (inserted) {
+        // 구 id → 신 id 매핑
+        const idMap = {};
+        la.forEach((oldA, i) => { if (inserted[i]) idMap[oldA.id] = inserted[i].id; });
+        // 거래에 account_id 채워넣기
+        const txMap = JSON.parse(localStorage.getItem('txAccountMap_v1') || '{}');
+        for (const [txId, oldAcctId] of Object.entries(txMap)) {
+          const newId = idMap[oldAcctId];
+          if (newId) {
+            await sb.from('transactions').update({ account_id: newId }).eq('id', parseInt(txId));
+          }
+        }
+        await loadAccounts();
+      }
+    }
+  }
+
+  // 자산 목표 이전
+  const localGoal = localStorage.getItem('assetGoal_v1');
+  if (localGoal) {
+    await saveSetting('asset_goal', localGoal);
+    assetGoal = parseInt(localGoal);
+  }
+
+  localStorage.setItem('migrated_to_sb_v1', 'yes');
+  showToast('☁️ 데이터를 서버로 이전했어요');
+}
 
 function changeYear(dir) {
   currentYear += dir;
@@ -499,6 +656,15 @@ function setupRealtime() {
   sb.channel('transactions').on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, async () => {
     await loadTransactions();
   }).subscribe();
+  sb.channel('budgets').on('postgres_changes', { event: '*', schema: 'public', table: 'budgets' }, async () => {
+    await loadBudgets(); render();
+  }).subscribe();
+  sb.channel('accounts').on('postgres_changes', { event: '*', schema: 'public', table: 'accounts' }, async () => {
+    await loadAccounts(); render();
+  }).subscribe();
+  sb.channel('settings').on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, async () => {
+    await loadSettings(); render();
+  }).subscribe();
 }
 
 // ── Helpers ───────────────────────────────────────
@@ -531,7 +697,7 @@ function renderMonthTabs() {
 // ── View switching ────────────────────────────────
 function switchView(view) {
   currentView = view;
-  ['monthly','annual','budget','fixed'].forEach(v => document.getElementById(`nav-${v}`).classList.toggle('active', v===view));
+  ['monthly','annual','budget','fixed','assets'].forEach(v => document.getElementById(`nav-${v}`).classList.toggle('active', v===view));
   document.getElementById('fabBtn').style.display = view==='monthly' ? 'flex' : 'none';
   render();
 }
@@ -541,6 +707,7 @@ function render() {
   else if (currentView==='annual') renderAnnual();
   else if (currentView==='budget') renderBudgetView();
   else if (currentView==='fixed') renderFixedView();
+  else if (currentView==='assets') renderAssetsView();
 }
 
 // ── Monthly view ──────────────────────────────────
@@ -613,7 +780,7 @@ function renderMonthly() {
           <div class="tx-icon" style="background:${iconBg}">${icon}</div>
           <div>
             <div class="tx-title">${tx.category} ${typeBadge} <span class="badge" style="background:${whoBg};color:${whoTxt};border:none">${tx.who}</span></div>
-            <div class="tx-meta">${tx.memo||''} · ${tx.payment} · ${String(tx.date).slice(5)}</div>
+            <div class="tx-meta">${tx.memo||''} · ${tx.payment}${tx.account_id ? ' · 💵'+ (accounts.find(a=>a.id===tx.account_id)?.name || '') : ''} · ${String(tx.date).slice(5)}</div>
           </div>
         </div>
         <div class="tx-right">
@@ -915,6 +1082,10 @@ function editTx(id) {
     `<button class="chip${p===selPay?' active':''}" onclick="selPay='${p}';document.querySelectorAll('#payGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent==='${p}'))">${p}</button>`
   ).join('');
 
+  // 계좌: 거래의 account_id 사용
+  selAccountId = tx.account_id || null;
+  renderAccountGrid();
+
   // 모달 제목, 버튼 텍스트 변경
   document.querySelector('#txModal .modal-title').textContent = '거래 수정';
   document.querySelector('#txModal .submit-btn').textContent = '수정하기';
@@ -932,7 +1103,8 @@ document.getElementById('fabBtn').addEventListener('click', () => {
   document.getElementById('memoInput').value = '';
   selectType('expense');
   selectCostType('변동비');
-  renderWhoGrid(); renderCatGrid(); renderPayGrid();
+  selAccountId = null;
+  renderWhoGrid(); renderCatGrid(); renderPayGrid(); renderAccountGrid();
 
   // 모달 제목, 버튼 텍스트 원복
   document.querySelector('#txModal .modal-title').textContent = '거래 추가';
@@ -973,6 +1145,32 @@ function renderPayGrid() {
   ).join('');
 }
 
+function renderAccountGrid() {
+  const grid = document.getElementById('accountGrid');
+  if (!accounts.length) {
+    grid.innerHTML = `<div style="font-size:11px;color:var(--text3)">자산 탭에서 계좌를 먼저 등록해주세요</div>`;
+    return;
+  }
+  grid.innerHTML = `<button class="chip${selAccountId===null?' active':''}" onclick="selAccountId=null;document.querySelectorAll('#accountGrid .chip').forEach(b=>b.classList.remove('active'));event.target.classList.add('active')">선택 안함</button>` +
+    accounts.map(a =>
+      `<button class="chip${selAccountId===a.id?' active':''}" onclick="selAccountId=${a.id};document.querySelectorAll('#accountGrid .chip').forEach(b=>b.classList.remove('active'));event.target.classList.add('active')">${ACCOUNT_ICONS[a.type]||'📝'} ${a.name}</button>`
+    ).join('');
+}
+
+// 계좌 잔액 조정 (Supabase 업데이트)
+async function applyAccountEffect(accountId, type, amount) {
+  if (!accountId) return;
+  const acct = accounts.find(a => a.id === accountId);
+  if (!acct) return;
+  const delta = type === 'income' ? amount : -amount;
+  const newBalance = acct.balance + delta;
+  acct.balance = newBalance;
+  await sb.from('accounts').update({ balance: newBalance }).eq('id', accountId);
+}
+async function reverseAccountEffect(accountId, type, amount) {
+  await applyAccountEffect(accountId, type, -amount);
+}
+
 async function addTransaction() {
   const amount = getAmountValue();
   if (!amount || amount <= 0) { alert('금액을 입력해주세요'); return; }
@@ -988,19 +1186,34 @@ async function addTransaction() {
     memo: document.getElementById('memoInput').value,
     amount: amount,
     payment: selPay,
-    who: selWho
+    who: selWho,
+    account_id: selAccountId || null
   };
 
   try {
     if (isEdit) {
+      // 기존 계좌 효과 되돌리기
+      const oldTx = allTxs.find(t => t.id === editingTxId);
+      if (oldTx && oldTx.account_id) {
+        await reverseAccountEffect(oldTx.account_id, oldTx.type, oldTx.amount);
+      }
+
       const { error } = await sb.from('transactions').update(payload).eq('id', editingTxId);
       if (error) throw error;
+
+      if (selAccountId) {
+        await applyAccountEffect(selAccountId, txType, amount);
+      }
       showToast('✅ 수정됐어요');
     } else {
       const { error } = await sb.from('transactions').insert([payload]);
       if (error) throw error;
+      if (selAccountId) {
+        await applyAccountEffect(selAccountId, txType, amount);
+      }
     }
     editingTxId = null;
+    selAccountId = null;
     document.getElementById('txModal').classList.remove('open');
   } catch(e) {
     alert('저장 실패: ' + e.message);
@@ -1011,6 +1224,10 @@ async function addTransaction() {
 
 async function deleteTx(id) {
   if (!confirm('삭제할까요?')) return;
+  const tx = allTxs.find(t => t.id === id);
+  if (tx && tx.account_id) {
+    await reverseAccountEffect(tx.account_id, tx.type, tx.amount);
+  }
   await sb.from('transactions').delete().eq('id', id);
   allTxs = allTxs.filter(t => t.id !== id);
   render();
@@ -1159,15 +1376,15 @@ function removeBudgetItem(idx) {
 
 document.getElementById('budgetModal').addEventListener('click', e => { if(e.target===document.getElementById('budgetModal')) document.getElementById('budgetModal').classList.remove('open'); });
 
-function saveBudgets() {
+async function saveBudgets() {
   budgetOrder.forEach((cat, idx) => {
     const el = document.getElementById(`bud_${idx}`);
     budgets[cat] = el ? (parseInt(el.value.replace(/[^0-9]/g, '')) || 0) : (budgets[cat] || 0);
   });
-  localStorage.setItem('budgets_v2', JSON.stringify(budgets));
-  localStorage.setItem('budgetOrder_v2', JSON.stringify(budgetOrder));
   document.getElementById('budgetModal').classList.remove('open');
+  await persistBudgets();
   render();
+  showToast('✅ 예산 저장됨');
 }
 
 // ── Swipe to change month ────────────────────────
@@ -1493,6 +1710,183 @@ function renderDayDetail(year, month, txs) {
   html += `</div>`;
   return html;
 }
+
+// ── Assets view ──────────────────────────────────
+function renderAssetsView() {
+  const positiveAccts = accounts.filter(a => a.balance >= 0 && !DEBT_TYPES.includes(a.type));
+  const negativeAccts = accounts.filter(a => a.balance < 0 || DEBT_TYPES.includes(a.type));
+  const totalPositive = positiveAccts.reduce((s, a) => s + a.balance, 0);
+  const totalNegative = negativeAccts.reduce((s, a) => s + a.balance, 0); // 음수이거나 신용카드는 빚
+  const netWorth = totalPositive + totalNegative;
+
+  // 보유자별 순자산
+  const ownerNet = {};
+  accounts.forEach(a => { if (a.owner) ownerNet[a.owner] = (ownerNet[a.owner] || 0) + a.balance; });
+
+  // 목표 대비 진행률
+  const goalPct = assetGoal > 0 ? Math.max(0, Math.min(100, netWorth / assetGoal * 100)) : 0;
+  const remain = Math.max(0, assetGoal - netWorth);
+  const goalLabel = assetGoal >= 100000000 ? (assetGoal/100000000).toFixed(assetGoal%100000000===0?0:1) + '억' :
+                    assetGoal >= 10000 ? (assetGoal/10000).toFixed(0) + '만' : fmt(assetGoal);
+
+  let html = `<div class="asset-total">
+    <div class="asset-total-label">💎 순자산</div>
+    <div class="asset-total-val" style="color:${netWorth >= 0 ? 'white' : 'var(--red)'}">${netWorth >= 0 ? '' : '-'}${fmt(netWorth)}원</div>
+    <div style="margin-top:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:11px;color:var(--text2)">🎯 목표 <b style="color:var(--accent2);cursor:pointer;text-decoration:underline" onclick="editAssetGoal()">${goalLabel}원</b>까지</div>
+        <div style="font-size:12px;font-weight:700;color:var(--accent2)">${goalPct.toFixed(1)}%</div>
+      </div>
+      <div style="height:8px;background:rgba(0,0,0,0.3);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${goalPct}%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:4px;transition:width 0.5s"></div>
+      </div>
+      <div style="font-size:10px;color:var(--text2);margin-top:6px;text-align:right">
+        ${netWorth >= assetGoal ? '🎉 목표 달성!' : `남은 금액 <b style="color:white">${fmt(remain)}원</b>`}
+      </div>
+    </div>
+  </div>
+  <div class="asset-subtotals">
+    <div class="asset-sub">
+      <div class="asset-sub-label">📈 총 자산</div>
+      <div class="asset-sub-val" style="color:var(--green)">+${fmt(totalPositive)}원</div>
+    </div>
+    <div class="asset-sub">
+      <div class="asset-sub-label">📉 부채/미결제</div>
+      <div class="asset-sub-val" style="color:var(--red)">${fmt(totalNegative)}원</div>
+    </div>
+  </div>`;
+
+  if (Object.keys(ownerNet).length) {
+    html += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:11px;margin-bottom:14px">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px;font-weight:600">👥 보유자별 순자산</div>`;
+    WHOS.forEach(w => {
+      if (ownerNet[w] === undefined) return;
+      const bg = WHO_COLORS[w] || 'var(--surface2)';
+      const txt = WHO_TEXT[w] || 'var(--text2)';
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0">
+        <span class="badge" style="background:${bg};color:${txt};border:none;font-size:11px">${w}</span>
+        <span style="font-size:13px;font-weight:700;color:${ownerNet[w]>=0?'var(--text)':'var(--red)'}">${ownerNet[w]>=0?'':'-'}${fmt(ownerNet[w])}원</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  html += `<div class="section">
+    <div class="section-header">
+      <div class="section-title">계좌 목록 · ${accounts.length}개</div>
+      <div style="cursor:pointer;color:var(--accent2);font-size:11px;font-weight:700" onclick="openAccountModal(null)">+ 계좌 추가</div>
+    </div>`;
+
+  if (!accounts.length) {
+    html += `<div class="empty"><div class="empty-icon">💵</div><p>계좌가 없어요<br>+ 버튼으로 추가해보세요</p></div>`;
+  } else {
+    // 유형별 그룹핑
+    ACCOUNT_TYPES.forEach(type => {
+      const typeAccts = accounts.filter(a => a.type === type);
+      if (!typeAccts.length) return;
+      const typeTotal = typeAccts.reduce((s, a) => s + a.balance, 0);
+      html += `<div style="font-size:11px;color:var(--text2);margin:12px 0 6px;display:flex;justify-content:space-between">
+        <span>${ACCOUNT_ICONS[type]||'📝'} ${type}</span>
+        <span style="color:${typeTotal>=0?'var(--text)':'var(--red)'}">${typeTotal>=0?'':'-'}${fmt(typeTotal)}원</span>
+      </div>`;
+      typeAccts.forEach(a => {
+        const balColor = a.balance >= 0 ? 'var(--text)' : 'var(--red)';
+        const balSign = a.balance >= 0 ? '' : '-';
+        const ownerBg = WHO_COLORS[a.owner] || 'var(--surface2)';
+        const ownerTxt = WHO_TEXT[a.owner] || 'var(--text2)';
+        const ownerBadge = a.owner ? `<span class="badge" style="background:${ownerBg};color:${ownerTxt};border:none;margin-left:4px">${a.owner}</span>` : '';
+        html += `<div class="account-item">
+          <div class="account-icon">${ACCOUNT_ICONS[a.type]||'📝'}</div>
+          <div class="account-info">
+            <div class="account-name">${a.name}${ownerBadge}</div>
+            <div class="account-type">${a.type}</div>
+          </div>
+          <div class="account-balance" style="color:${balColor}">${balSign}${fmt(a.balance)}원</div>
+          <div class="account-actions">
+            <button class="del-btn" onclick="openAccountModal(${a.id})" style="color:var(--accent2);font-size:14px">✏️</button>
+            <button class="del-btn" onclick="deleteAccount(${a.id})">✕</button>
+          </div>
+        </div>`;
+      });
+    });
+  }
+
+  html += `</div>`;
+  document.getElementById('mainContent').innerHTML = html;
+}
+
+async function editAssetGoal() {
+  const input = prompt('자산 목표 금액을 입력하세요 (원)\n예: 10억 → 1000000000, 5억 → 500000000', assetGoal);
+  if (input === null) return;
+  const val = parseInt(input.replace(/[^0-9]/g, ''));
+  if (!val || val <= 0) { alert('올바른 금액을 입력해주세요'); return; }
+  assetGoal = val;
+  await saveSetting('asset_goal', val);
+  render();
+}
+
+function openAccountModal(id) {
+  editingAccountId = id;
+  const acct = id ? accounts.find(a => a.id === id) : null;
+  document.getElementById('accountModalTitle').textContent = id ? '계좌 수정' : '계좌 추가';
+  document.getElementById('accountName').value = acct ? acct.name : '';
+  // 부채 유형은 양수로 표시 (사용자가 마이너스 부호 없이 금액만 입력)
+  if (acct) {
+    const displayBal = DEBT_TYPES.includes(acct.type) ? Math.abs(acct.balance) : acct.balance;
+    document.getElementById('accountBalance').value = displayBal.toLocaleString('ko-KR');
+  } else {
+    document.getElementById('accountBalance').value = '';
+  }
+
+  const selType = acct ? acct.type : ACCOUNT_TYPES[0];
+  window.selAccountType = selType;
+  document.getElementById('accountTypeGrid').innerHTML = ACCOUNT_TYPES.map(t =>
+    `<button class="chip${t===selType?' active':''}" onclick="window.selAccountType='${t}';document.querySelectorAll('#accountTypeGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent.includes('${t}')))">${ACCOUNT_ICONS[t]||'📝'} ${t}</button>`).join('');
+
+  const selOwner = acct && acct.owner ? acct.owner : WHOS[0];
+  window.selAccountOwner = selOwner;
+  document.getElementById('accountOwnerGrid').innerHTML = WHOS.map(w =>
+    `<button class="chip${w===selOwner?' active':''}" onclick="window.selAccountOwner='${w}';document.querySelectorAll('#accountOwnerGrid .chip').forEach(b=>b.classList.toggle('active',b.textContent==='${w}'))">${w}</button>`).join('');
+
+  document.getElementById('accountModal').classList.add('open');
+}
+
+async function saveAccount() {
+  const name = document.getElementById('accountName').value.trim();
+  const balanceStr = document.getElementById('accountBalance').value.replace(/,/g, '');
+  const balance = parseInt(balanceStr) || 0;
+  if (!name) { alert('계좌명을 입력해주세요'); return; }
+
+  const type = window.selAccountType || ACCOUNT_TYPES[0];
+  let finalBalance = balance;
+  if (DEBT_TYPES.includes(type) && balance > 0) finalBalance = -balance;
+  const owner = window.selAccountOwner || WHOS[0];
+
+  document.getElementById('accountModal').classList.remove('open');
+
+  if (editingAccountId) {
+    await sb.from('accounts').update({ name, type, balance: finalBalance, owner }).eq('id', editingAccountId);
+  } else {
+    await sb.from('accounts').insert([{ name, type, balance: finalBalance, owner, sort_order: accounts.length }]);
+  }
+  await loadAccounts();
+  render();
+  showToast('✅ 계좌 저장됨');
+}
+
+async function deleteAccount(id) {
+  if (!confirm('계좌를 삭제할까요?')) return;
+  await sb.from('accounts').delete().eq('id', id);
+  // 연결된 거래의 account_id 해제
+  await sb.from('transactions').update({ account_id: null }).eq('account_id', id);
+  await loadAccounts();
+  render();
+  showToast('🗑 계좌 삭제됨');
+}
+
+document.getElementById('accountModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('accountModal')) document.getElementById('accountModal').classList.remove('open');
+});
 </script>
 </body>
 </html>
