@@ -275,19 +275,20 @@
   <div id="debugLog"></div>
 </div>
 <script>
-window.debugLog = function(msg) {
+// debugLog: 일반 로그는 조용히 쌓고, showPanel=true 일 때만 패널 표시
+window.debugLog = function(msg, showPanel) {
   const panel = document.getElementById('debugPanel');
   const log = document.getElementById('debugLog');
   if (!panel || !log) return;
   const time = new Date().toLocaleTimeString('ko-KR');
   log.textContent = '[' + time + '] ' + msg + '\n' + log.textContent;
-  panel.style.display = 'block';
+  if (showPanel) panel.style.display = 'block';
 };
 window.addEventListener('error', e => {
-  window.debugLog('JS ERROR: ' + e.message + ' @ ' + (e.filename||'?') + ':' + e.lineno);
+  window.debugLog('JS ERROR: ' + e.message + ' @ ' + (e.filename||'?') + ':' + e.lineno, true);
 });
 window.addEventListener('unhandledrejection', e => {
-  window.debugLog('PROMISE REJECTION: ' + (e.reason?.message || JSON.stringify(e.reason)));
+  window.debugLog('PROMISE REJECTION: ' + (e.reason?.message || JSON.stringify(e.reason)), true);
 });
 </script>
 
@@ -525,7 +526,7 @@ async function persistBudgets() {
   // 기존 전부 삭제 후 재삽입 (순서 관리 간단히)
   const delRes = await sb.from('budgets').delete().neq('id', 0);
   if (delRes.error) {
-    window.debugLog && window.debugLog('budgets DELETE 실패 [' + (delRes.error.code||'?') + ']: ' + delRes.error.message);
+    window.debugLog && window.debugLog('budgets DELETE 실패 [' + (delRes.error.code||'?') + ']: ' + delRes.error.message, true);
     alert('예산 삭제 실패: ' + delRes.error.message);
     return;
   }
@@ -534,15 +535,13 @@ async function persistBudgets() {
     amount: budgets[cat] || 0,
     sort_order: idx
   }));
-  window.debugLog && window.debugLog('budgets INSERT 시도: ' + rows.length + '건');
   if (rows.length) {
     const insRes = await sb.from('budgets').insert(rows).select();
     if (insRes.error) {
-      window.debugLog && window.debugLog('budgets INSERT 실패 [' + (insRes.error.code||'?') + ']: ' + insRes.error.message);
+      window.debugLog && window.debugLog('budgets INSERT 실패 [' + (insRes.error.code||'?') + ']: ' + insRes.error.message, true);
       alert('예산 저장 실패: ' + insRes.error.message);
       return;
     }
-    window.debugLog && window.debugLog('budgets INSERT 성공: ' + (insRes.data?.length||0) + '건');
   }
 }
 
@@ -2061,8 +2060,6 @@ async function saveAccount() {
   if (DEBT_TYPES.includes(type) && balance > 0) finalBalance = -balance;
   const owner = window.selAccountOwner || WHOS[0];
 
-  window.debugLog && window.debugLog('saveAccount 시작: ' + JSON.stringify({name, type, finalBalance, owner, editingAccountId}));
-
   let result;
   try {
     if (editingAccountId) {
@@ -2071,16 +2068,14 @@ async function saveAccount() {
       result = await sb.from('accounts').insert([{ name, type, balance: finalBalance, owner, sort_order: accounts.length }]).select();
     }
   } catch (e) {
-    window.debugLog && window.debugLog('네트워크/JS 예외: ' + (e.message || e));
+    window.debugLog && window.debugLog('계좌 저장 예외: ' + (e.message || e), true);
     alert('예외 발생: ' + (e.message || e));
     return;
   }
 
-  window.debugLog && window.debugLog('Supabase 응답: ' + JSON.stringify(result));
-
   if (result.error) {
-    const msg = '계좌 저장 실패 [' + (result.error.code||'?') + ']: ' + (result.error.message || '') + '\nhint: ' + (result.error.hint||'') + '\ndetails: ' + (result.error.details||'');
-    window.debugLog && window.debugLog(msg);
+    const msg = '계좌 저장 실패 [' + (result.error.code||'?') + ']: ' + (result.error.message || '');
+    window.debugLog && window.debugLog(msg, true);
     alert(msg);
     return;
   }
