@@ -1993,31 +1993,34 @@ function renderAssetsView() {
     }).join('');
   }
 
-  let html = `<div style="display:flex;gap:8px;margin-bottom:14px;align-items:stretch">
-    <div class="asset-total" style="flex:1.1;margin-bottom:0;min-width:0;padding:14px">
+  let html = `<div class="asset-total" style="padding:16px;margin-bottom:14px;display:flex;gap:14px;align-items:stretch">
+    <!-- 왼쪽: 순자산 -->
+    <div style="flex:1.25;min-width:0;display:flex;flex-direction:column;justify-content:center">
       <div class="asset-total-label">💎 순자산</div>
-      <div class="asset-total-val" style="color:${netWorth >= 0 ? 'white' : 'var(--red)'};font-size:20px">${netWorth >= 0 ? '' : '-'}${fmt(netWorth)}원</div>
-      <div style="margin-top:10px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <div style="font-size:10px;color:var(--text2)">🎯 <b style="color:var(--accent2);cursor:pointer;text-decoration:underline" onclick="editAssetGoal()">${goalLabel}원</b></div>
-          <div style="font-size:11px;font-weight:700;color:var(--accent2)">${goalPct.toFixed(1)}%</div>
-        </div>
-        <div style="height:7px;background:rgba(0,0,0,0.3);border-radius:3px;overflow:hidden">
-          <div style="height:100%;width:${goalPct}%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:3px;transition:width 0.5s"></div>
-        </div>
-        <div style="font-size:9px;color:var(--text2);margin-top:4px;text-align:right">
-          ${netWorth >= assetGoal ? '🎉 달성!' : `남은 <b style="color:white">${fmt(remain)}원</b>`}
-        </div>
+      <div class="asset-total-val" style="color:${netWorth >= 0 ? 'white' : 'var(--red)'};font-size:22px;margin-bottom:10px">${netWorth >= 0 ? '' : '-'}${fmt(netWorth)}원</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+        <div style="font-size:10px;color:var(--text2)">🎯 <b style="color:var(--accent2);cursor:pointer;text-decoration:underline" onclick="editAssetGoal()">${goalLabel}원</b></div>
+        <div style="font-size:11px;font-weight:700;color:var(--accent2)">${goalPct.toFixed(1)}%</div>
+      </div>
+      <div style="height:7px;background:rgba(0,0,0,0.3);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${goalPct}%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:3px;transition:width 0.5s"></div>
+      </div>
+      <div style="font-size:9px;color:var(--text2);margin-top:5px;text-align:right">
+        ${netWorth >= assetGoal ? '🎉 달성!' : `남은 <b style="color:white">${fmt(remain)}원</b>`}
       </div>
     </div>
-    <div style="flex:1;display:flex;flex-direction:column;gap:8px;min-width:0">
-      <div class="asset-sub" style="flex:1;display:flex;flex-direction:column;justify-content:center">
-        <div class="asset-sub-label">📈 총 자산</div>
-        <div class="asset-sub-val" style="color:var(--green);font-size:14px">+${fmt(totalPositive)}원</div>
+    <!-- 세로 구분선 -->
+    <div style="width:1px;background:rgba(255,255,255,0.12);flex-shrink:0"></div>
+    <!-- 오른쪽: 총자산 / 부채 스택 -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:10px">
+      <div>
+        <div style="font-size:10px;color:var(--text2);margin-bottom:3px">📈 총 자산</div>
+        <div style="color:var(--green);font-size:15px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">+${fmt(totalPositive)}원</div>
       </div>
-      <div class="asset-sub" style="flex:1;display:flex;flex-direction:column;justify-content:center">
-        <div class="asset-sub-label">📉 부채/미결제</div>
-        <div class="asset-sub-val" style="color:var(--red);font-size:14px">${fmt(totalNegative)}원</div>
+      <div style="height:1px;background:rgba(255,255,255,0.1)"></div>
+      <div>
+        <div style="font-size:10px;color:var(--text2);margin-bottom:3px">📉 부채/미결제</div>
+        <div style="color:var(--red);font-size:15px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${totalNegative<0?'':''}${fmt(totalNegative)}원</div>
       </div>
     </div>
   </div>
