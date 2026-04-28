@@ -436,6 +436,13 @@ window.addEventListener('unhandledrejection', e => {
       <input class="form-input" type="text" id="accountBalance" placeholder="0" inputmode="numeric" oninput="formatAmountInput(this)">
       <div style="font-size:10px;color:var(--text3);margin-top:4px">💡 부채 유형(신용카드/마이너스통장/대출)은 금액만 입력하면 자동으로 음수 처리됩니다</div>
     </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text)">
+        <input type="checkbox" id="accountIsSavings" style="width:18px;height:18px;accent-color:var(--accent2)">
+        <span>💰 저축성 계좌로 분류</span>
+      </label>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;padding-left:26px">예: 종신보험, 청약통장, 적금 등 — 이 계좌로 이체된 금액은 "저축"으로 집계됩니다</div>
+    </div>
     <button class="submit-btn" onclick="saveAccount()">저장하기</button>
   </div>
 </div>
@@ -762,14 +769,23 @@ function renderMonthly() {
   const txs = getMonthTxs(currentYear, currentMonth, filterWho);
   const allMonthTxs = getMonthTxs(currentYear, currentMonth);
   const income  = allMonthTxs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-  const expense = allMonthTxs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  const expenseRaw = allMonthTxs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
   const fixed   = allMonthTxs.filter(t=>t.type==='expense'&&t.cost_type==='고정비').reduce((s,t)=>s+t.amount,0);
   const variable= allMonthTxs.filter(t=>t.type==='expense'&&t.cost_type==='변동비').reduce((s,t)=>s+t.amount,0);
-  const balance = income - expense;
+
+  // 💰 저축성 이체: 저축 계좌(is_savings=true)로 들어온 이체 = 저축으로 집계
+  const savingsAcctIds = new Set(accounts.filter(a => a.is_savings).map(a => a.id));
+  const savingTransfer = allMonthTxs
+    .filter(t => t.type === 'transfer' && savingsAcctIds.has(t.to_account_id))
+    .reduce((s,t) => s + t.amount, 0);
+
   const SAVING_CATS = ['저축'];
-  const savingExp = allMonthTxs.filter(t=>t.type==='expense'&&SAVING_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
-  const pureExpense = expense - savingExp;
-  const savingRate = income > 0 ? Math.round((income-expense)/income*100) : 0;
+  const savingCatExp = allMonthTxs.filter(t=>t.type==='expense'&&SAVING_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
+  const savingExp = savingCatExp + savingTransfer;     // 저축 카테고리 + 저축 이체
+  const expense = expenseRaw + savingTransfer;          // 표시용 지출
+  const pureExpense = expenseRaw - savingCatExp;        // 순수 지출 (저축 제외)
+  const balance = income - expense;
+  const savingRate = income > 0 ? Math.round(savingExp/income*100) : 0;
   const fPct = expense > 0 ? Math.round(fixed/expense*100) : 0;
 
   let html = `
@@ -2102,10 +2118,11 @@ function renderAssetsView() {
         const ownerBg = WHO_COLORS[a.owner] || 'var(--surface2)';
         const ownerTxt = WHO_TEXT[a.owner] || 'var(--text2)';
         const ownerBadge = a.owner ? `<span class="badge" style="background:${ownerBg};color:${ownerTxt};border:none;margin-left:4px">${a.owner}</span>` : '';
+        const savingsBadge = a.is_savings ? `<span class="badge" style="background:rgba(255,193,7,0.15);color:#FFC107;border:none;margin-left:4px">💰 저축</span>` : '';
         html += `<div class="account-item">
           <div class="account-icon">${ACCOUNT_ICONS[a.type]||'📝'}</div>
           <div class="account-info">
-            <div class="account-name">${a.name}${ownerBadge}</div>
+            <div class="account-name">${a.name}${ownerBadge}${savingsBadge}</div>
             <div class="account-type">${a.type}</div>
           </div>
           <div class="account-balance" style="color:${balColor}">${balSign}${fmt(a.balance)}원</div>
@@ -2144,6 +2161,7 @@ function openAccountModal(id) {
   } else {
     document.getElementById('accountBalance').value = '';
   }
+  document.getElementById('accountIsSavings').checked = !!(acct && acct.is_savings);
 
   const selType = acct ? acct.type : ACCOUNT_TYPES[0];
   window.selAccountType = selType;
@@ -2168,13 +2186,14 @@ async function saveAccount() {
   let finalBalance = balance;
   if (DEBT_TYPES.includes(type) && balance > 0) finalBalance = -balance;
   const owner = window.selAccountOwner || WHOS[0];
+  const is_savings = document.getElementById('accountIsSavings').checked;
 
   let result;
   try {
     if (editingAccountId) {
-      result = await sb.from('accounts').update({ name, type, balance: finalBalance, owner }).eq('id', editingAccountId).select();
+      result = await sb.from('accounts').update({ name, type, balance: finalBalance, owner, is_savings }).eq('id', editingAccountId).select();
     } else {
-      result = await sb.from('accounts').insert([{ name, type, balance: finalBalance, owner, sort_order: accounts.length }]).select();
+      result = await sb.from('accounts').insert([{ name, type, balance: finalBalance, owner, is_savings, sort_order: accounts.length }]).select();
     }
   } catch (e) {
     window.debugLog && window.debugLog('계좌 저장 예외: ' + (e.message || e), true);
