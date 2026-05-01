@@ -478,6 +478,7 @@ let budgets = {};       // Supabase budgets 테이블에서 로드
 let budgetOrder = [];   // Supabase에서 sort_order 순으로
 let accounts = [];      // Supabase accounts 테이블에서 로드
 let assetGoal = 1000000000; // Supabase settings에서 로드, 기본 10억
+let monthlySavingGoals = {}; // {saving_goal_2026_04: 1000000, ...}
 let selAccountId = null; // tx 모달에서 선택한 계좌
 let editingAccountId = null;
 const ACCOUNT_TYPES = ['은행','신용카드','체크카드','현금','선불','투자','부동산','보증금','마이너스통장','대출','기타'];
@@ -501,6 +502,10 @@ let calSelectedWho = null;
 let calSelectedCat = null;
 let calTxType = 'expense'; // 구성원/카테고리 뷰에서 지출/수입 토글
 let viewHistory = []; // 뒤로가기용 히스토리
+// 거래내역 정렬 상태: { mode, dir }
+//   mode: 'date' | 'income' | 'expense' | 'who'
+//   dir:  'asc' | 'desc' | who별('남편'|'아내'|'딸'|...|'all')
+let txSort = { mode: 'date', dir: 'desc' };
 let selFixedCat = '주거', selFixedPay = '이체', selFixedWho = '남편';
 
 // ── Init ──────────────────────────────────────────
@@ -562,8 +567,10 @@ async function loadAccounts() {
 async function loadSettings() {
   const { data, error } = await sb.from('settings').select('*');
   if (!error && data) {
+    monthlySavingGoals = {};
     data.forEach(s => {
       if (s.key === 'asset_goal') assetGoal = parseInt(s.value) || 1000000000;
+      else if (s.key.startsWith('saving_goal_')) monthlySavingGoals[s.key] = parseInt(s.value) || 0;
     });
   }
 }
@@ -788,12 +795,20 @@ function renderMonthly() {
   const savingRate = income > 0 ? Math.round(savingExp/income*100) : 0;
   const fPct = expense > 0 ? Math.round(fixed/expense*100) : 0;
 
+  // 🎯 이번달 목표 저축액 (settings: saving_goal_YYYY_MM)
+  const savingGoalKey = `saving_goal_${currentYear}_${String(currentMonth+1).padStart(2,'0')}`;
+  const savingGoal = parseInt(monthlySavingGoals[savingGoalKey] || 0) || 0;
+  const goalPctSaving = savingGoal > 0 ? Math.round(savingExp / savingGoal * 100) : 0;
+  const goalSubText = savingGoal > 0
+    ? `목표 ${fmt(savingGoal)} (${goalPctSaving}%)`
+    : `<span style="cursor:pointer;color:var(--accent2);text-decoration:underline" onclick="editSavingGoal()">목표 설정</span>`;
+
   let html = `
   <div class="kpi-grid">
     <div class="kpi-card"><div class="kpi-label">💚 수입</div><div class="kpi-value" style="color:var(--green)">${fmt(income)}</div><div class="kpi-sub">원</div></div>
-    <div class="kpi-card"><div class="kpi-label">🔴 지출</div><div class="kpi-value" style="color:var(--red)">${fmt(expense)}</div><div class="kpi-sub">순수 ${fmt(pureExpense)} + 저축 ${fmt(savingExp)}</div></div>
-    <div class="kpi-card"><div class="kpi-label">💙 잔액</div><div class="kpi-value" style="color:${balance>=0?'var(--accent2)':'var(--red)'}">${balance>=0?'+':'-'}${fmt(balance)}</div><div class="kpi-sub">원</div></div>
-    <div class="kpi-card"><div class="kpi-label">⭐ 저축률</div><div class="kpi-value" style="color:var(--yellow)">${savingRate}%</div><div class="kpi-sub">목표 20%</div></div>
+    <div class="kpi-card"><div class="kpi-label">🔴 지출</div><div class="kpi-value" style="color:var(--red)">${expense>0?'-':''}${fmt(expense)}</div><div class="kpi-sub">순수 ${fmt(pureExpense)} + 저축 ${fmt(savingExp)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">💰 저축액</div><div class="kpi-value" style="color:var(--yellow)">${fmt(savingExp)}</div><div class="kpi-sub">${savingRate}% / 수입</div></div>
+    <div class="kpi-card"><div class="kpi-label">🎯 목표 저축액 <span style="cursor:pointer;color:var(--accent2);font-size:11px" onclick="editSavingGoal()">✏️</span></div><div class="kpi-value" style="color:var(--accent2);font-size:16px">${savingGoal>0?fmt(savingGoal):'-'}</div><div class="kpi-sub">${goalSubText}</div></div>
   </div>
   ${renderCalSection(currentYear, currentMonth, allMonthTxs)}
   ${renderDayDetail(currentYear, currentMonth, allMonthTxs)}
@@ -828,8 +843,50 @@ function renderMonthly() {
   if (txs.length === 0) {
     html += `<div class="empty"><div class="empty-icon">📝</div><p>거래 내역이 없어요<br>+ 버튼으로 추가해보세요</p></div>`;
   } else {
-    html += `<div class="section"><div class="section-header"><div class="section-title">거래 내역</div><div class="section-badge">${txs.length}건</div></div><div class="tx-list">`;
-    txs.forEach(tx => {
+    // 정렬 적용
+    const sortedTxs = [...txs].sort((a, b) => {
+      const m = txSort.mode, d = txSort.dir;
+      if (m === 'income') {
+        const av = a.type==='income' ? a.amount : -1;
+        const bv = b.type==='income' ? b.amount : -1;
+        return d==='asc' ? av-bv : bv-av;
+      }
+      if (m === 'expense') {
+        const av = a.type==='expense' ? a.amount : -1;
+        const bv = b.type==='expense' ? b.amount : -1;
+        return d==='asc' ? av-bv : bv-av;
+      }
+      if (m === 'who') {
+        const aMatch = (a.who === d) ? 0 : 1;
+        const bMatch = (b.who === d) ? 0 : 1;
+        if (aMatch !== bMatch) return aMatch - bMatch; // 매칭 먼저
+        return new Date(b.date) - new Date(a.date);
+      }
+      // default: date desc
+      return new Date(b.date) - new Date(a.date);
+    });
+
+    // 정렬 버튼 UI
+    const sortBtn = (label, mode, dir, title) => {
+      const active = txSort.mode === mode && txSort.dir === dir;
+      return `<button title="${title}" onclick="setTxSort('${mode}','${dir}')" style="background:${active?'var(--accent)':'var(--surface2)'};border:1px solid ${active?'var(--accent)':'var(--border)'};color:${active?'white':'var(--text2)'};border-radius:7px;padding:5px 7px;font-size:11px;cursor:pointer;font-family:inherit;line-height:1">${label}</button>`;
+    };
+
+    html += `<div class="section">
+      <div class="section-header">
+        <div class="section-title">거래 내역 <span class="section-badge" style="margin-left:6px">${txs.length}건</span></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;align-items:center">
+        ${sortBtn('📅 최신', 'date', 'desc', '날짜 최신순')}
+        ${sortBtn('💚↑', 'income', 'asc', '수입 작은순')}
+        ${sortBtn('💚↓', 'income', 'desc', '수입 큰순')}
+        ${sortBtn('🔴↑', 'expense', 'asc', '지출 작은순')}
+        ${sortBtn('🔴↓', 'expense', 'desc', '지출 큰순')}
+        <span style="color:var(--text3);font-size:11px;margin:0 2px">|</span>
+        ${WHOS.map(w => sortBtn(w, 'who', w, `${w} 거래 우선`)).join('')}
+      </div>
+      <div class="tx-list">`;
+    sortedTxs.forEach(tx => {
       if (tx.type === 'transfer') {
         const fromName = accounts.find(a=>a.id===tx.account_id)?.name || '?';
         const toName   = accounts.find(a=>a.id===tx.to_account_id)?.name || '?';
@@ -1235,7 +1292,7 @@ function renderTransferAccountGrids() {
       return;
     }
     grid.innerHTML = accounts.map(a =>
-      `<button class="chip${window[selectedIdVar]===a.id?' active':''}" onclick="window.${selectedIdVar}=${a.id};document.querySelectorAll('#${gridId} .chip').forEach(b=>b.classList.remove('active'));event.target.classList.add('active')">${ACCOUNT_ICONS[a.type]||'📝'} ${a.name}</button>`
+      `<button class="chip${window[selectedIdVar]===a.id?' active':''}" onclick="window.${selectedIdVar}=${a.id};document.querySelectorAll('#${gridId} .chip').forEach(b=>b.classList.remove('active'));event.target.classList.add('active')">${getAcctDisplayName(a)}</button>`
     ).join('');
   };
   render('fromAccountGrid', 'selFromAccountId');
@@ -1265,6 +1322,14 @@ function renderPayGrid() {
   ).join('');
 }
 
+// 같은 이름 계좌가 둘 이상이면 보유자를 함께 표시 (구분용)
+function getAcctDisplayName(a) {
+  const sameNameCount = accounts.filter(x => x.name === a.name).length;
+  return sameNameCount > 1 && a.owner
+    ? `${ACCOUNT_ICONS[a.type]||'📝'} ${a.name} (${a.owner})`
+    : `${ACCOUNT_ICONS[a.type]||'📝'} ${a.name}`;
+}
+
 function renderAccountGrid() {
   const grid = document.getElementById('accountGrid');
   if (!accounts.length) {
@@ -1273,7 +1338,7 @@ function renderAccountGrid() {
   }
   grid.innerHTML = `<button class="chip${selAccountId===null?' active':''}" onclick="selAccountId=null;document.querySelectorAll('#accountGrid .chip').forEach(b=>b.classList.remove('active'));event.target.classList.add('active')">선택 안함</button>` +
     accounts.map(a =>
-      `<button class="chip${selAccountId===a.id?' active':''}" onclick="selAccountId=${a.id};document.querySelectorAll('#accountGrid .chip').forEach(b=>b.classList.remove('active'));event.target.classList.add('active')">${ACCOUNT_ICONS[a.type]||'📝'} ${a.name}</button>`
+      `<button class="chip${selAccountId===a.id?' active':''}" onclick="selAccountId=${a.id};document.querySelectorAll('#accountGrid .chip').forEach(b=>b.classList.remove('active'));event.target.classList.add('active')">${getAcctDisplayName(a)}</button>`
     ).join('');
 }
 
@@ -1369,6 +1434,10 @@ async function addTransaction() {
     window.selFromAccountId = null;
     window.selToAccountId = null;
     document.getElementById('txModal').classList.remove('open');
+    // 즉시 반영 — Supabase realtime 구독 지연 보완
+    await loadTransactions();
+    await loadAccounts();
+    render();
   } catch(e) {
     alert('저장 실패: ' + e.message);
   } finally {
@@ -1666,7 +1735,8 @@ function renderCalGrid(year, month, txs) {
   txs.forEach(tx => {
     const day = parseInt(tx.date.slice(8, 10));
     if (tx.type === 'expense') dailyExp[day] = (dailyExp[day] || 0) + tx.amount;
-    else dailyInc[day] = (dailyInc[day] || 0) + tx.amount;
+    else if (tx.type === 'income') dailyInc[day] = (dailyInc[day] || 0) + tx.amount;
+    // 이체(transfer)는 달력 합계에서 제외
   });
 
   const dows = ['일','월','화','수','목','금','토'];
@@ -2146,6 +2216,28 @@ async function editAssetGoal() {
   if (!val || val <= 0) { alert('올바른 금액을 입력해주세요'); return; }
   assetGoal = val;
   await saveSetting('asset_goal', val);
+  render();
+}
+
+function setTxSort(mode, dir) {
+  // 같은 버튼 다시 누르면 날짜 최신순으로 토글 해제
+  if (txSort.mode === mode && txSort.dir === dir) {
+    txSort = { mode: 'date', dir: 'desc' };
+  } else {
+    txSort = { mode, dir };
+  }
+  render();
+}
+
+async function editSavingGoal() {
+  const key = `saving_goal_${currentYear}_${String(currentMonth+1).padStart(2,'0')}`;
+  const cur = monthlySavingGoals[key] || 0;
+  const input = prompt(`${MONTHS[currentMonth]} 목표 저축액을 입력하세요 (원)\n예: 100만 → 1000000`, cur);
+  if (input === null) return;
+  const val = parseInt(input.replace(/[^0-9]/g, ''));
+  if (val < 0 || isNaN(val)) { alert('올바른 금액을 입력해주세요'); return; }
+  monthlySavingGoals[key] = val;
+  await saveSetting(key, val);
   render();
 }
 
