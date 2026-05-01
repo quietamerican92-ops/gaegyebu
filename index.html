@@ -479,6 +479,7 @@ let budgetOrder = [];   // Supabase에서 sort_order 순으로
 let accounts = [];      // Supabase accounts 테이블에서 로드
 let assetGoal = 1000000000; // Supabase settings에서 로드, 기본 10억
 let monthlySavingGoals = {}; // {saving_goal_2026_04: 1000000, ...}
+let netWorthSnapshots = []; // [{snapshot_date, net_worth, total_assets, total_debt, memo}, ...] 최신순
 let selAccountId = null; // tx 모달에서 선택한 계좌
 let editingAccountId = null;
 const ACCOUNT_TYPES = ['은행','신용카드','체크카드','현금','선불','투자','부동산','보증금','마이너스통장','대출','기타'];
@@ -515,6 +516,7 @@ window.addEventListener('load', async () => {
   await loadBudgets();
   await loadAccounts();
   await loadSettings();
+  await loadSnapshots();
   await migrateLocalToSupabase(); // 기존 localStorage 데이터 자동 이전
   await loadFixedItems();
   await loadTransactions();
@@ -561,6 +563,51 @@ async function persistBudgets() {
 async function loadAccounts() {
   const { data, error } = await sb.from('accounts').select('*').order('sort_order').order('id');
   if (!error && data) accounts = data;
+}
+
+// ── Net Worth Snapshots ──────────────────────────
+async function loadSnapshots() {
+  const { data, error } = await sb.from('net_worth_snapshots')
+    .select('*').order('snapshot_date', { ascending: false });
+  if (!error && data) netWorthSnapshots = data;
+}
+
+async function saveNetWorthSnapshot() {
+  const positiveAccts = accounts.filter(a => a.balance >= 0 && !DEBT_TYPES.includes(a.type));
+  const negativeAccts = accounts.filter(a => a.balance < 0 || DEBT_TYPES.includes(a.type));
+  const totalPositive = positiveAccts.reduce((s, a) => s + a.balance, 0);
+  const totalNegative = negativeAccts.reduce((s, a) => s + a.balance, 0);
+  const netWorth = totalPositive + totalNegative;
+
+  const dateInput = prompt(
+    `📸 스냅샷 날짜를 입력하세요 (YYYY-MM-DD)\n\n현재 순자산: ${fmt(netWorth)}원`,
+    new Date().toISOString().slice(0, 10)
+  );
+  if (!dateInput) return;
+  const snapshot_date = dateInput.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(snapshot_date)) {
+    alert('YYYY-MM-DD 형식으로 입력해주세요'); return;
+  }
+
+  const memo = prompt('메모 (선택)', '') || null;
+
+  // 같은 날짜 있으면 덮어쓰기
+  const { error } = await sb.from('net_worth_snapshots').upsert(
+    { snapshot_date, net_worth: netWorth, total_assets: totalPositive, total_debt: totalNegative, memo },
+    { onConflict: 'snapshot_date' }
+  );
+  if (error) { alert('스냅샷 저장 실패: ' + error.message); return; }
+  await loadSnapshots();
+  render();
+  showToast('📸 스냅샷 저장됨');
+}
+
+async function deleteSnapshot(id) {
+  if (!confirm('이 스냅샷을 삭제할까요?')) return;
+  const { error } = await sb.from('net_worth_snapshots').delete().eq('id', id);
+  if (error) { alert('삭제 실패: ' + error.message); return; }
+  await loadSnapshots();
+  render();
 }
 
 // ── Settings ─────────────────────────────────────
@@ -726,6 +773,9 @@ function setupRealtime() {
   sb.channel('settings').on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, async () => {
     await loadSettings(); render();
   }).subscribe();
+  sb.channel('net_worth_snapshots').on('postgres_changes', { event: '*', schema: 'public', table: 'net_worth_snapshots' }, async () => {
+    await loadSnapshots(); render();
+  }).subscribe();
 }
 
 // ── Helpers ───────────────────────────────────────
@@ -819,6 +869,7 @@ function renderMonthly() {
     <div class="kpi-card"><div class="kpi-label">💰 저축액</div><div class="kpi-value" style="color:var(--yellow)">${fmtSign(savingAmount)}</div><div class="kpi-sub">수입 - 일반지출</div></div>
     <div class="kpi-card"><div class="kpi-label">🎯 목표 저축액 <span style="cursor:pointer;color:var(--accent2);font-size:11px" onclick="editSavingGoal()">✏️</span></div><div class="kpi-value" style="color:var(--accent2);font-size:16px">${savingGoal>0?fmt(savingGoal):'-'}</div><div class="kpi-sub">${savingGoal>0?`달성률 ${goalPctSaving}%`:'<span style="cursor:pointer;color:var(--accent2);text-decoration:underline" onclick="editSavingGoal()">설정하기</span>'}</div></div>
   </div>
+  ${renderMomCompare(allMonthTxs, isCurrentMonth, today)}
   ${renderCalSection(currentYear, currentMonth, allMonthTxs)}
   ${renderDayDetail(currentYear, currentMonth, allMonthTxs)}
   <div class="fv-card">
@@ -883,8 +934,6 @@ function renderMonthly() {
         ${filterBtn('📅 전체', 'date')}
         ${filterBtn(`💚 수입 ${arrow('income')}`, 'income')}
         ${filterBtn(`🔴 지출 ${arrow('expense')}`, 'expense')}
-        <span style="color:var(--text3);font-size:11px;margin:0 2px">|</span>
-        ${WHOS.map(w => filterBtn(w, 'who', w, `${w} 거래만`)).join('')}
       </div>
       <div class="tx-list">`;
     visibleTxs.forEach(tx => {
@@ -2138,6 +2187,8 @@ function renderAssetsView() {
     html += `</div>`;
   }
 
+  // 📸 순자산 스냅샷 / 시점별 비교
+  html += renderNetWorthSnapshots(netWorth, totalPositive, totalNegative);
 
   html += `<div class="section">
     <div class="section-header">
@@ -2208,6 +2259,158 @@ function renderAssetsView() {
 
   html += `</div>`;
   document.getElementById('mainContent').innerHTML = html;
+}
+
+// 📊 전월 동기간 대비 지출 비교 바
+function renderMomCompare(allMonthTxs, isCurrentMonth, today) {
+  // 비교 기준일: 이번달이면 오늘, 과거 월이면 그 달 말일
+  let refDay;
+  if (isCurrentMonth) {
+    refDay = today.getDate();
+  } else {
+    refDay = new Date(currentYear, currentMonth + 1, 0).getDate(); // 그 달의 마지막일
+  }
+
+  // 이번달 1일 ~ refDay 까지 지출
+  const thisMonthExp = allMonthTxs
+    .filter(t => t.type === 'expense' && parseInt(t.date.slice(8,10)) <= refDay)
+    .reduce((s, t) => s + t.amount, 0);
+
+  // 전월 동일 일자까지 지출
+  const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+  const prevYear  = currentMonth === 0 ? currentYear - 1 : currentYear;
+  const prevMonthLastDay = new Date(prevYear, prevMonth + 1, 0).getDate();
+  const prevRefDay = Math.min(refDay, prevMonthLastDay);
+  const prevStart = `${prevYear}-${String(prevMonth+1).padStart(2,'0')}-01`;
+  const prevEnd = `${prevYear}-${String(prevMonth+1).padStart(2,'0')}-${String(prevRefDay).padStart(2,'0')}`;
+  const prevMonthExp = allTxs
+    .filter(t => t.type === 'expense' && t.date >= prevStart && t.date <= prevEnd)
+    .reduce((s, t) => s + t.amount, 0);
+
+  const headerLabel = isCurrentMonth
+    ? `📊 전월 동기간(${prevMonth+1}/1~${prevMonth+1}/${prevRefDay}) 대비 지출`
+    : `📊 전월 대비 지출 (${prevMonth+1}월 vs ${currentMonth+1}월)`;
+
+  if (prevMonthExp === 0 && thisMonthExp === 0) {
+    return `<div class="fv-card"><div style="font-size:11px;color:var(--text3);text-align:center;padding:6px">📊 전월 동기간 지출 데이터 없음</div></div>`;
+  }
+
+  const ratio = prevMonthExp > 0 ? Math.round(thisMonthExp / prevMonthExp * 100) : null;
+  const diff = thisMonthExp - prevMonthExp;
+  const max = Math.max(thisMonthExp, prevMonthExp, 1);
+  const prevPct = Math.round(prevMonthExp / max * 100);
+  const thisPct = Math.round(thisMonthExp / max * 100);
+
+  const diffColor = diff <= 0 ? 'var(--green)' : 'var(--red)';
+  const diffSign = diff <= 0 ? '' : '+';
+  const diffPctStr = ratio !== null ? `${diffSign}${ratio - 100}%` : '—';
+
+  return `<div class="fv-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:600;color:var(--text2)">${headerLabel}</div>
+      <div style="font-size:13px;font-weight:800;color:${diffColor}">${diffPctStr}</div>
+    </div>
+    <div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text3);margin-bottom:3px">
+        <span>${prevMonth+1}월 1일 ~ ${prevRefDay}일</span>
+        <b style="color:var(--text2)">${fmt(prevMonthExp)}원</b>
+      </div>
+      <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${prevPct}%;background:linear-gradient(90deg,#7B8AB8,#5B6EF5);border-radius:4px"></div>
+      </div>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text3);margin-bottom:3px">
+        <span>${currentMonth+1}월 1일 ~ ${refDay}일${isCurrentMonth?' (오늘)':''}</span>
+        <b style="color:${diff<=0?'var(--green)':'var(--red)'}">${fmt(thisMonthExp)}원 (${diffSign}${fmt(Math.abs(diff))})</b>
+      </div>
+      <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${thisPct}%;background:linear-gradient(90deg,${diff<=0?'#34D399,#10B981':'#FB7185,#EF4444'});border-radius:4px"></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// 📸 순자산 스냅샷 카드 렌더
+function renderNetWorthSnapshots(currentNetWorth, totalPositive, totalNegative) {
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  // 비교 시점 (목표 일수)
+  const targets = [
+    { label: '1주 전',   days: 7 },
+    { label: '1개월 전', days: 30 },
+    { label: '3개월 전', days: 90 },
+    { label: '작년 동월', days: 365 },
+  ];
+
+  // 가장 가까운 과거 스냅샷 찾기
+  const findNearest = (targetDays) => {
+    if (!netWorthSnapshots.length) return null;
+    const target = new Date();
+    target.setDate(target.getDate() - targetDays);
+    // 목표 날짜 이전 또는 같은 스냅샷 중 가장 가까운(=가장 최근) 것
+    const candidates = netWorthSnapshots.filter(s => s.snapshot_date <= target.toISOString().slice(0,10));
+    if (!candidates.length) return null;
+    // 최신순 정렬되어 있으므로 첫 번째가 가장 가까움
+    return candidates[0];
+  };
+
+  let html = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:11px;color:var(--text2);font-weight:600">📊 순자산 변동</div>
+      <button onclick="saveNetWorthSnapshot()" style="background:var(--accent);border:none;color:white;border-radius:7px;padding:6px 11px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">📸 스냅샷</button>
+    </div>`;
+
+  if (!netWorthSnapshots.length) {
+    html += `<div style="font-size:11px;color:var(--text3);text-align:center;padding:14px 0;line-height:1.6">
+      아직 스냅샷이 없어요<br>📸 버튼으로 현재 자산 상태를 저장해두면<br>나중에 시점별 변동을 볼 수 있어요
+    </div></div>`;
+    return html;
+  }
+
+  // 비교 카드들
+  let anyShown = false;
+  targets.forEach(t => {
+    const snap = findNearest(t.days);
+    if (!snap) return;
+    anyShown = true;
+    const diff = currentNetWorth - snap.net_worth;
+    const pctRaw = snap.net_worth !== 0 ? (diff / Math.abs(snap.net_worth) * 100) : 0;
+    const pct = pctRaw.toFixed(1);
+    const sign = diff >= 0 ? '+' : '-';
+    const color = diff >= 0 ? 'var(--green)' : 'var(--red)';
+    // 실제 비교 시점 — 목표와 다르면 (○일 전)으로 표시
+    const snapDate = new Date(snap.snapshot_date);
+    const daysAgo = Math.round((new Date(todayStr) - snapDate) / 86400000);
+    const exactLabel = daysAgo === t.days ? '' : ` <span style="color:var(--text3);font-size:9px">(${snap.snapshot_date.slice(5)} · ${daysAgo}일 전)</span>`;
+
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+      <span style="color:var(--text2)">vs ${t.label}${exactLabel}</span>
+      <span><b style="color:${color}">${sign}${fmt(diff)}</b> <span style="color:${color};font-size:11px">(${diff>=0?'+':''}${pct}%)</span></span>
+    </div>`;
+  });
+
+  if (!anyShown) {
+    html += `<div style="font-size:11px;color:var(--text3);text-align:center;padding:10px 0">스냅샷이 충분히 쌓이지 않았어요 (최소 1주 전 데이터 필요)</div>`;
+  }
+
+  // 최근 스냅샷 목록 (최대 5개, 펼침형)
+  const recent = netWorthSnapshots.slice(0, 5);
+  html += `<details style="margin-top:8px">
+    <summary style="cursor:pointer;font-size:11px;color:var(--accent2);padding:4px 0">📋 최근 스냅샷 ${netWorthSnapshots.length}건 보기</summary>
+    <div style="margin-top:6px">`;
+  recent.forEach(s => {
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:11px;border-top:1px solid var(--border)">
+      <span style="color:var(--text2)">${s.snapshot_date}${s.memo?` <span style="color:var(--text3)">· ${s.memo}</span>`:''}</span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <b style="color:${s.net_worth>=0?'var(--text)':'var(--red)'}">${s.net_worth>=0?'':'-'}${fmt(s.net_worth)}</b>
+        <button onclick="deleteSnapshot(${s.id})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">✕</button>
+      </span>
+    </div>`;
+  });
+  html += `</div></details>`;
+  html += `</div>`;
+  return html;
 }
 
 async function editAssetGoal() {
