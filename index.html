@@ -775,40 +775,49 @@ function render() {
 function renderMonthly() {
   const txs = getMonthTxs(currentYear, currentMonth, filterWho);
   const allMonthTxs = getMonthTxs(currentYear, currentMonth);
-  const income  = allMonthTxs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-  const expenseRaw = allMonthTxs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
-  const fixed   = allMonthTxs.filter(t=>t.type==='expense'&&t.cost_type==='고정비').reduce((s,t)=>s+t.amount,0);
-  const variable= allMonthTxs.filter(t=>t.type==='expense'&&t.cost_type==='변동비').reduce((s,t)=>s+t.amount,0);
+
+  // 📅 KPI는 "오늘 기준 누적"으로 산정 — 현재 보고 있는 월이 이번달이면 오늘 이후 거래(미결제 고정비 등) 제외
+  const today = new Date();
+  const isCurrentMonth = today.getFullYear() === currentYear && today.getMonth() === currentMonth;
+  const todayStr = today.toISOString().slice(0,10);
+  const kpiTxs = isCurrentMonth ? allMonthTxs.filter(t => t.date <= todayStr) : allMonthTxs;
+
+  const income  = kpiTxs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const expenseRaw = kpiTxs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  const fixed   = kpiTxs.filter(t=>t.type==='expense'&&t.cost_type==='고정비').reduce((s,t)=>s+t.amount,0);
+  const variable= kpiTxs.filter(t=>t.type==='expense'&&t.cost_type==='변동비').reduce((s,t)=>s+t.amount,0);
 
   // 💰 저축성 이체: 저축 계좌(is_savings=true)로 들어온 이체 = 저축으로 집계
   const savingsAcctIds = new Set(accounts.filter(a => a.is_savings).map(a => a.id));
-  const savingTransfer = allMonthTxs
+  const savingTransfer = kpiTxs
     .filter(t => t.type === 'transfer' && savingsAcctIds.has(t.to_account_id))
     .reduce((s,t) => s + t.amount, 0);
 
   const SAVING_CATS = ['저축'];
-  const savingCatExp = allMonthTxs.filter(t=>t.type==='expense'&&SAVING_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
-  const savingExp = savingCatExp + savingTransfer;     // 저축 카테고리 + 저축 이체
+  const savingCatExp = kpiTxs.filter(t=>t.type==='expense'&&SAVING_CATS.includes(t.category)).reduce((s,t)=>s+t.amount,0);
+  const savingTypeExp = savingCatExp + savingTransfer;  // 저축성 지출 (저축 카테고리 + 저축 이체)
   const expense = expenseRaw + savingTransfer;          // 표시용 지출
-  const pureExpense = expenseRaw - savingCatExp;        // 순수 지출 (저축 제외)
-  const balance = income - expense;
-  const savingRate = income > 0 ? Math.round(savingExp/income*100) : 0;
+  const pureExpense = expenseRaw - savingCatExp;        // 저축성 제외 일반 지출
+  // 💰 저축액 정의: 수입 - 저축성 제외 일반 지출 (남는 돈 = 실제 저축할 수 있는 금액)
+  const savingAmount = income - pureExpense;
   const fPct = expense > 0 ? Math.round(fixed/expense*100) : 0;
 
   // 🎯 이번달 목표 저축액 (settings: saving_goal_YYYY_MM)
   const savingGoalKey = `saving_goal_${currentYear}_${String(currentMonth+1).padStart(2,'0')}`;
   const savingGoal = parseInt(monthlySavingGoals[savingGoalKey] || 0) || 0;
-  const goalPctSaving = savingGoal > 0 ? Math.round(savingExp / savingGoal * 100) : 0;
-  const goalSubText = savingGoal > 0
-    ? `목표 ${fmt(savingGoal)} (${goalPctSaving}%)`
-    : `<span style="cursor:pointer;color:var(--accent2);text-decoration:underline" onclick="editSavingGoal()">목표 설정</span>`;
+  const goalPctSaving = savingGoal > 0 ? Math.round(savingAmount / savingGoal * 100) : 0;
+
+  // 음수 표시: (-)5,704,452
+  const fmtNeg = (n) => n > 0 ? `(-)${fmt(n)}` : fmt(n);
+  const fmtSign = (n) => n < 0 ? `(-)${fmt(Math.abs(n))}` : fmt(n);
+  const todayLabel = isCurrentMonth ? `오늘(${todayStr.slice(5)}) 기준` : '';
 
   let html = `
   <div class="kpi-grid">
-    <div class="kpi-card"><div class="kpi-label">💚 수입</div><div class="kpi-value" style="color:var(--green)">${fmt(income)}</div><div class="kpi-sub">원</div></div>
-    <div class="kpi-card"><div class="kpi-label">🔴 지출</div><div class="kpi-value" style="color:var(--red)">${expense>0?'-':''}${fmt(expense)}</div><div class="kpi-sub">순수 ${fmt(pureExpense)} + 저축 ${fmt(savingExp)}</div></div>
-    <div class="kpi-card"><div class="kpi-label">💰 저축액</div><div class="kpi-value" style="color:var(--yellow)">${fmt(savingExp)}</div><div class="kpi-sub">${savingRate}% / 수입</div></div>
-    <div class="kpi-card"><div class="kpi-label">🎯 목표 저축액 <span style="cursor:pointer;color:var(--accent2);font-size:11px" onclick="editSavingGoal()">✏️</span></div><div class="kpi-value" style="color:var(--accent2);font-size:16px">${savingGoal>0?fmt(savingGoal):'-'}</div><div class="kpi-sub">${goalSubText}</div></div>
+    <div class="kpi-card"><div class="kpi-label">💚 수입</div><div class="kpi-value" style="color:var(--green)">${fmt(income)}</div><div class="kpi-sub">${todayLabel || '원'}</div></div>
+    <div class="kpi-card"><div class="kpi-label">🔴 지출</div><div class="kpi-value" style="color:var(--red)">${fmtNeg(expense)}</div><div class="kpi-sub">순수 ${fmt(pureExpense)} + 저축 ${fmt(savingTypeExp)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">💰 저축액</div><div class="kpi-value" style="color:var(--yellow)">${fmtSign(savingAmount)}</div><div class="kpi-sub">수입 - 일반지출</div></div>
+    <div class="kpi-card"><div class="kpi-label">🎯 목표 저축액 <span style="cursor:pointer;color:var(--accent2);font-size:11px" onclick="editSavingGoal()">✏️</span></div><div class="kpi-value" style="color:var(--accent2);font-size:16px">${savingGoal>0?fmt(savingGoal):'-'}</div><div class="kpi-sub">${savingGoal>0?`달성률 ${goalPctSaving}%`:'<span style="cursor:pointer;color:var(--accent2);text-decoration:underline" onclick="editSavingGoal()">설정하기</span>'}</div></div>
   </div>
   ${renderCalSection(currentYear, currentMonth, allMonthTxs)}
   ${renderDayDetail(currentYear, currentMonth, allMonthTxs)}
@@ -840,53 +849,45 @@ function renderMonthly() {
     }).join('')}
   </div>`;
 
-  if (txs.length === 0) {
+  // 거래 내역 필터링 + 정렬
+  let visibleTxs = [...txs];
+  if (txSort.mode === 'income') {
+    visibleTxs = visibleTxs.filter(t => t.type === 'income');
+    visibleTxs.sort((a,b) => txSort.dir==='asc' ? a.amount-b.amount : b.amount-a.amount);
+  } else if (txSort.mode === 'expense') {
+    visibleTxs = visibleTxs.filter(t => t.type === 'expense');
+    visibleTxs.sort((a,b) => txSort.dir==='asc' ? a.amount-b.amount : b.amount-a.amount);
+  } else if (txSort.mode === 'who') {
+    visibleTxs = visibleTxs.filter(t => t.who === txSort.dir);
+    visibleTxs.sort((a,b) => new Date(b.date) - new Date(a.date));
+  } else {
+    visibleTxs.sort((a,b) => new Date(b.date) - new Date(a.date));
+  }
+
+  if (visibleTxs.length === 0 && txs.length === 0) {
     html += `<div class="empty"><div class="empty-icon">📝</div><p>거래 내역이 없어요<br>+ 버튼으로 추가해보세요</p></div>`;
   } else {
-    // 정렬 적용
-    const sortedTxs = [...txs].sort((a, b) => {
-      const m = txSort.mode, d = txSort.dir;
-      if (m === 'income') {
-        const av = a.type==='income' ? a.amount : -1;
-        const bv = b.type==='income' ? b.amount : -1;
-        return d==='asc' ? av-bv : bv-av;
-      }
-      if (m === 'expense') {
-        const av = a.type==='expense' ? a.amount : -1;
-        const bv = b.type==='expense' ? b.amount : -1;
-        return d==='asc' ? av-bv : bv-av;
-      }
-      if (m === 'who') {
-        const aMatch = (a.who === d) ? 0 : 1;
-        const bMatch = (b.who === d) ? 0 : 1;
-        if (aMatch !== bMatch) return aMatch - bMatch; // 매칭 먼저
-        return new Date(b.date) - new Date(a.date);
-      }
-      // default: date desc
-      return new Date(b.date) - new Date(a.date);
-    });
-
-    // 정렬 버튼 UI
-    const sortBtn = (label, mode, dir, title) => {
-      const active = txSort.mode === mode && txSort.dir === dir;
-      return `<button title="${title}" onclick="setTxSort('${mode}','${dir}')" style="background:${active?'var(--accent)':'var(--surface2)'};border:1px solid ${active?'var(--accent)':'var(--border)'};color:${active?'white':'var(--text2)'};border-radius:7px;padding:5px 7px;font-size:11px;cursor:pointer;font-family:inherit;line-height:1">${label}</button>`;
+    // 필터/정렬 버튼 UI: 수입/지출은 화살표 토글, 주체는 단일 선택
+    const arrow = (mode) => txSort.mode === mode ? (txSort.dir==='desc' ? '↓' : '↑') : '↕';
+    const isActive = (mode, dir) => txSort.mode === mode && (dir === undefined || txSort.dir === dir);
+    const filterBtn = (label, mode, dir, title) => {
+      const active = isActive(mode, dir);
+      return `<button title="${title}" onclick="toggleTxSort('${mode}'${dir!==undefined?`,'${dir}'`:''})" style="background:${active?'var(--accent)':'var(--surface2)'};border:1px solid ${active?'var(--accent)':'var(--border)'};color:${active?'white':'var(--text2)'};border-radius:7px;padding:5px 9px;font-size:11px;cursor:pointer;font-family:inherit;line-height:1">${label}</button>`;
     };
 
     html += `<div class="section">
       <div class="section-header">
-        <div class="section-title">거래 내역 <span class="section-badge" style="margin-left:6px">${txs.length}건</span></div>
+        <div class="section-title">거래 내역 <span class="section-badge" style="margin-left:6px">${visibleTxs.length}/${txs.length}건</span></div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;align-items:center">
-        ${sortBtn('📅 최신', 'date', 'desc', '날짜 최신순')}
-        ${sortBtn('💚↑', 'income', 'asc', '수입 작은순')}
-        ${sortBtn('💚↓', 'income', 'desc', '수입 큰순')}
-        ${sortBtn('🔴↑', 'expense', 'asc', '지출 작은순')}
-        ${sortBtn('🔴↓', 'expense', 'desc', '지출 큰순')}
+        ${filterBtn('📅 전체', 'date')}
+        ${filterBtn(`💚 수입 ${arrow('income')}`, 'income')}
+        ${filterBtn(`🔴 지출 ${arrow('expense')}`, 'expense')}
         <span style="color:var(--text3);font-size:11px;margin:0 2px">|</span>
-        ${WHOS.map(w => sortBtn(w, 'who', w, `${w} 거래 우선`)).join('')}
+        ${WHOS.map(w => filterBtn(w, 'who', w, `${w} 거래만`)).join('')}
       </div>
       <div class="tx-list">`;
-    sortedTxs.forEach(tx => {
+    visibleTxs.forEach(tx => {
       if (tx.type === 'transfer') {
         const fromName = accounts.find(a=>a.id===tx.account_id)?.name || '?';
         const toName   = accounts.find(a=>a.id===tx.to_account_id)?.name || '?';
@@ -2225,6 +2226,28 @@ function setTxSort(mode, dir) {
     txSort = { mode: 'date', dir: 'desc' };
   } else {
     txSort = { mode, dir };
+  }
+  render();
+}
+
+// 새 토글 — 수입/지출은 한 버튼으로 ↑↓ 토글, 주체는 단일선택
+function toggleTxSort(mode, dir) {
+  if (mode === 'date') {
+    txSort = { mode: 'date', dir: 'desc' };
+  } else if (mode === 'income' || mode === 'expense') {
+    if (txSort.mode === mode) {
+      // 이미 같은 모드면 방향 토글; desc → asc → 해제(전체)
+      if (txSort.dir === 'desc') txSort = { mode, dir: 'asc' };
+      else txSort = { mode: 'date', dir: 'desc' };
+    } else {
+      txSort = { mode, dir: 'desc' };
+    }
+  } else if (mode === 'who') {
+    if (txSort.mode === 'who' && txSort.dir === dir) {
+      txSort = { mode: 'date', dir: 'desc' }; // 같은 주체 다시 누르면 해제
+    } else {
+      txSort = { mode: 'who', dir };
+    }
   }
   render();
 }
