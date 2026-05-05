@@ -54,10 +54,10 @@
 
   /* KPI */
   .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
-  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; }
-  .kpi-label { font-size: 11px; color: var(--text2); margin-bottom: 5px; font-weight: 500; }
-  .kpi-value { font-size: 19px; font-weight: 900; letter-spacing: -0.5px; }
-  .kpi-sub { font-size: 10px; color: var(--text3); margin-top: 3px; }
+  .kpi-card { background: #F2F2F7; border: 1px solid #E5E5EA; border-radius: var(--radius); padding: 13px; }
+  .kpi-label { font-size: 11px; color: #6B7280; margin-bottom: 5px; font-weight: 600; }
+  .kpi-value { font-size: 19px; font-weight: 900; letter-spacing: -0.5px; color: #1C1C1E; }
+  .kpi-sub { font-size: 10px; color: #8E8E93; margin-top: 3px; }
 
   /* Fixed/var bar */
   .fv-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; margin-bottom: 14px; }
@@ -862,12 +862,18 @@ function renderMonthly() {
   const fmtSign = (n) => n < 0 ? `(-)${fmt(Math.abs(n))}` : fmt(n);
   const todayLabel = isCurrentMonth ? `오늘(${todayStr.slice(5)}) 기준` : '';
 
+  // 라이트 카드용 진한 색상 (대비 ↑)
+  const C_GREEN  = '#16A34A';
+  const C_RED    = '#DC2626';
+  const C_YELLOW = '#CA8A04';
+  const C_INDIGO = '#4F46E5';
+
   let html = `
   <div class="kpi-grid">
-    <div class="kpi-card"><div class="kpi-label">💚 수입</div><div class="kpi-value" style="color:var(--green)">${fmt(income)}</div><div class="kpi-sub">${todayLabel || '원'}</div></div>
-    <div class="kpi-card"><div class="kpi-label">🔴 지출</div><div class="kpi-value" style="color:var(--red)">${fmtNeg(expense)}</div><div class="kpi-sub">순수 ${fmt(pureExpense)} + 저축 ${fmt(savingTypeExp)}</div></div>
-    <div class="kpi-card"><div class="kpi-label">💰 저축액</div><div class="kpi-value" style="color:var(--yellow)">${fmtSign(savingAmount)}</div><div class="kpi-sub">수입 - 일반지출</div></div>
-    <div class="kpi-card"><div class="kpi-label">🎯 목표 저축액 <span style="cursor:pointer;color:var(--accent2);font-size:11px" onclick="editSavingGoal()">✏️</span></div><div class="kpi-value" style="color:var(--accent2);font-size:16px">${savingGoal>0?fmt(savingGoal):'-'}</div><div class="kpi-sub">${savingGoal>0?`달성률 ${goalPctSaving}%`:'<span style="cursor:pointer;color:var(--accent2);text-decoration:underline" onclick="editSavingGoal()">설정하기</span>'}</div></div>
+    <div class="kpi-card"><div class="kpi-label">💚 수입</div><div class="kpi-value" style="color:${C_GREEN}">${fmt(income)}</div><div class="kpi-sub">${todayLabel || '원'}</div></div>
+    <div class="kpi-card"><div class="kpi-label">🔴 지출</div><div class="kpi-value" style="color:${C_RED}">${fmtNeg(expense)}</div><div class="kpi-sub">순수 ${fmt(pureExpense)} + 저축 ${fmt(savingTypeExp)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">💰 저축액</div><div class="kpi-value" style="color:${C_YELLOW}">${fmtSign(savingAmount)}</div><div class="kpi-sub">수입 - 일반지출</div></div>
+    <div class="kpi-card"><div class="kpi-label">🎯 목표 저축액 <span style="cursor:pointer;color:${C_INDIGO};font-size:11px" onclick="editSavingGoal()">✏️</span></div><div class="kpi-value" style="color:${C_INDIGO};font-size:16px">${savingGoal>0?fmt(savingGoal):'-'}</div><div class="kpi-sub">${savingGoal>0?`달성률 ${goalPctSaving}%`:`<span style="cursor:pointer;color:${C_INDIGO};text-decoration:underline" onclick="editSavingGoal()">설정하기</span>`}</div></div>
   </div>
   ${renderMomCompare(allMonthTxs, isCurrentMonth, today)}
   ${renderCalSection(currentYear, currentMonth, allMonthTxs)}
