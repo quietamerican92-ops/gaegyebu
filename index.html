@@ -69,7 +69,7 @@
   .bar-var { height: 100%; background: var(--orange); transition: width 0.5s; }
 
   /* Who filter */
-  .who-filter { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 14px; }
+  .who-filter { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; margin-bottom: 14px; padding-bottom: 4px; -webkit-overflow-scrolling: touch; touch-action: pan-x; }
   .who-filter::-webkit-scrollbar { display: none; }
   .who-btn { flex-shrink: 0; font-size: 12px; padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; font-family: inherit; transition: all 0.15s; }
   .who-btn.active { background: var(--accent); border-color: var(--accent); color: white; font-weight: 700; }
@@ -908,7 +908,7 @@ function renderMonthly() {
   <div class="who-filter">
     ${['전체',...WHOS].map(w=>`<button class="who-btn${filterWho===w?' active':''}" onclick="setWhoFilter('${w}')">${w}</button>`).join('')}
   </div>
-  <div class="who-filter" style="margin-top:-6px">
+  <div class="who-filter">
     <button class="who-btn${!filterAccountId?' active':''}" onclick="setAccountFilter(null)">💵 전체 계좌</button>
     ${accounts.map(a=>`<button class="who-btn${filterAccountId===a.id?' active':''}" onclick="setAccountFilter(${a.id})">${ACCOUNT_ICONS[a.type]||'📝'} ${a.name}</button>`).join('')}
   </div>
