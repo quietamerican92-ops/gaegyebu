@@ -844,6 +844,7 @@ function renderMonthly() {
     txs = txs.filter(t => t.account_id === filterAccountId || t.to_account_id === filterAccountId);
   }
   const allMonthTxs = getMonthTxs(currentYear, currentMonth);
+  const balanceMap = computeBalanceAfterMap();
 
   // 📅 KPI는 "오늘 기준 누적"으로 산정 — 현재 보고 있는 월이 이번달이면 오늘 이후 거래(미결제 고정비 등) 제외
   const today = new Date();
@@ -969,13 +970,23 @@ function renderMonthly() {
       if (tx.type === 'transfer') {
         const fromName = accounts.find(a=>a.id===tx.account_id)?.name || '?';
         const toName   = accounts.find(a=>a.id===tx.to_account_id)?.name || '?';
+        // 이체 잔액: 필터된 계좌가 있으면 그 계좌, 없으면 from/to 둘 다 표시
+        let balStr = '';
+        if (filterAccountId) {
+          const b = balanceMap.get(`${filterAccountId}_${tx.id}`);
+          if (b != null) balStr = ` · 💰잔액 ${b<0?'-':''}${fmt(Math.abs(b))}`;
+        } else {
+          const bFrom = balanceMap.get(`${tx.account_id}_${tx.id}`);
+          const bTo = balanceMap.get(`${tx.to_account_id}_${tx.id}`);
+          if (bFrom != null && bTo != null) balStr = ` · 💰${fromName} ${bFrom<0?'-':''}${fmt(Math.abs(bFrom))} / ${toName} ${bTo<0?'-':''}${fmt(Math.abs(bTo))}`;
+        }
         html += `
         <div class="tx-item">
           <div class="tx-left">
             <div class="tx-icon" style="background:#1A2A4A">🔄</div>
             <div>
               <div class="tx-title">이체 <span class="badge" style="background:var(--surface2);color:var(--accent2);border:none">${fromName} → ${toName}</span></div>
-              <div class="tx-meta">${tx.memo||''} · ${String(tx.date).slice(5)}</div>
+              <div class="tx-meta">${tx.memo||''} · ${String(tx.date).slice(5)}${balStr}</div>
             </div>
           </div>
           <div class="tx-right">
@@ -993,13 +1004,17 @@ function renderMonthly() {
       const typeBadge = tx.type==='expense' ? `<span class="badge ${tx.cost_type==='고정비'?'badge-fixed':'badge-var'}">${tx.cost_type}</span>` : '';
       const whoBg = WHO_COLORS[tx.who] || 'var(--surface2)';
       const whoTxt = WHO_TEXT[tx.who] || 'var(--text2)';
+      // 거래 후 잔액: 필터 적용 시 그 계좌, 아니면 tx.account_id 계좌
+      const balAcctId = filterAccountId || tx.account_id;
+      const balanceAfter = balAcctId ? balanceMap.get(`${balAcctId}_${tx.id}`) : null;
+      const balStr = balanceAfter != null ? ` · 💰잔액 ${balanceAfter<0?'-':''}${fmt(Math.abs(balanceAfter))}` : '';
       html += `
       <div class="tx-item">
         <div class="tx-left">
           <div class="tx-icon" style="background:${iconBg}">${icon}</div>
           <div>
             <div class="tx-title">${tx.category} ${typeBadge} <span class="badge" style="background:${whoBg};color:${whoTxt};border:none">${tx.who}</span></div>
-            <div class="tx-meta">${tx.memo||''} · ${tx.payment}${tx.account_id ? ' · 💵'+ (accounts.find(a=>a.id===tx.account_id)?.name || '') : ''} · ${String(tx.date).slice(5)}</div>
+            <div class="tx-meta">${tx.memo||''} · ${tx.payment}${tx.account_id ? ' · 💵'+ (accounts.find(a=>a.id===tx.account_id)?.name || '') : ''} · ${String(tx.date).slice(5)}${balStr}</div>
           </div>
         </div>
         <div class="tx-right">
@@ -1016,6 +1031,30 @@ function renderMonthly() {
 
 function setWhoFilter(who) { filterWho = who; render(); }
 function setAccountFilter(id) { filterAccountId = id; render(); }
+
+// ── 거래 후 잔액 맵 계산 ──────────────────────────
+// key: `${accountId}_${txId}` → 그 거래 직후 그 계좌의 잔액
+function computeBalanceAfterMap() {
+  const map = new Map();
+  accounts.forEach(acct => {
+    const acctTxs = allTxs
+      .filter(t => t.account_id === acct.id || t.to_account_id === acct.id)
+      .sort((a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : (a.id - b.id)));
+    let bal = acct.balance;
+    for (let i = acctTxs.length - 1; i >= 0; i--) {
+      const tx = acctTxs[i];
+      map.set(`${acct.id}_${tx.id}`, bal);
+      // 거래 효과 되돌리기 → 그 거래 직전 잔액
+      if (tx.type === 'income' && tx.account_id === acct.id) bal -= tx.amount;
+      else if (tx.type === 'expense' && tx.account_id === acct.id) bal += tx.amount;
+      else if (tx.type === 'transfer') {
+        if (tx.to_account_id === acct.id) bal -= tx.amount;
+        if (tx.account_id === acct.id) bal += tx.amount;
+      }
+    }
+  });
+  return map;
+}
 
 // ── 계좌별 입출금 추적 모달 ────────────────────────
 let acctDetailId = null;
@@ -1068,6 +1107,9 @@ function renderAccountDetail() {
 
   // 최신순 정렬
   acctTxs.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.id - a.id)));
+
+  // 거래 후 잔액 맵
+  const balanceMap = computeBalanceAfterMap();
 
   // 헤더
   const ownerStr = acct.owner ? ` · ${acct.owner}` : '';
@@ -1128,13 +1170,18 @@ function renderAccountDetail() {
         sign = '-'; color = 'var(--red)';
         label = `${ICONS[tx.category]||'📝'} ${tx.category} <span style="color:var(--text3);font-weight:400">· ${tx.who}</span>`;
       }
+      const balAfter = balanceMap.get(`${acctDetailId}_${tx.id}`);
+      const balDisplay = balAfter != null ? `<div style="font-size:10px;color:var(--text3);white-space:nowrap;margin-top:3px">잔액 <b style="color:${balAfter<0?'var(--red)':'var(--text2)'}">${balAfter<0?'-':''}${fmt(Math.abs(balAfter))}</b></div>` : '';
       html += `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--surface2);border-radius:8px;cursor:pointer;gap:8px" onclick="document.getElementById('accountDetailModal').classList.remove('open'); editTx(${tx.id})">
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:600;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
             <div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(tx.date).slice(5)}${sub ? ' · ' + sub : ''}</div>
           </div>
-          <div style="font-size:14px;font-weight:700;color:${color};white-space:nowrap;flex-shrink:0">${sign}${fmt(tx.amount)}</div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:14px;font-weight:700;color:${color};white-space:nowrap">${sign}${fmt(tx.amount)}</div>
+            ${balDisplay}
+          </div>
         </div>`;
     });
     html += `</div>`;
