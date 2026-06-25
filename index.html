@@ -1888,6 +1888,8 @@ async function saveBudgets() {
   let startX = 0, startY = 0, swiping = false;
   const content = document.getElementById('mainContent');
   content.addEventListener('touchstart', e => {
+    // 가로 스크롤 가능한 영역(필터 칩, 월 탭 등) 안에서 시작된 터치는 월 변경 swipe로 처리하지 않음
+    if (e.target.closest('.who-filter, .month-tabs, .modal, .modal-overlay')) { swiping = false; return; }
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
     swiping = true;
