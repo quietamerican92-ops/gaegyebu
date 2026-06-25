@@ -450,6 +450,18 @@ window.addEventListener('unhandledrejection', e => {
   </div>
 </div>
 
+<!-- Account Detail (입출금 추적) Modal -->
+<div class="modal-overlay" id="accountDetailModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="modal-title" id="accountDetailTitle" style="margin-bottom:0">계좌 내역</div>
+      <button onclick="document.getElementById('accountDetailModal').classList.remove('open')" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;padding:4px 8px">✕</button>
+    </div>
+    <div id="accountDetailBody"></div>
+  </div>
+</div>
+
 <script>
 // ── Supabase ──────────────────────────────────────
 const SUPABASE_URL = 'https://odexjawwfgvglaborzdn.supabase.co';
@@ -476,6 +488,7 @@ let selCat = '';
 let selWho = '남편';
 let selPay = '카드';
 let filterWho = '전체';
+let filterAccountId = null;
 let allTxs = [];
 let budgets = {};       // Supabase budgets 테이블에서 로드
 let budgetOrder = [];   // Supabase에서 sort_order 순으로
@@ -826,7 +839,10 @@ function render() {
 
 // ── Monthly view ──────────────────────────────────
 function renderMonthly() {
-  const txs = getMonthTxs(currentYear, currentMonth, filterWho);
+  let txs = getMonthTxs(currentYear, currentMonth, filterWho);
+  if (filterAccountId) {
+    txs = txs.filter(t => t.account_id === filterAccountId || t.to_account_id === filterAccountId);
+  }
   const allMonthTxs = getMonthTxs(currentYear, currentMonth);
 
   // 📅 KPI는 "오늘 기준 누적"으로 산정 — 현재 보고 있는 월이 이번달이면 오늘 이후 거래(미결제 고정비 등) 제외
@@ -890,6 +906,10 @@ function renderMonthly() {
   </div>
   <div class="who-filter">
     ${['전체',...WHOS].map(w=>`<button class="who-btn${filterWho===w?' active':''}" onclick="setWhoFilter('${w}')">${w}</button>`).join('')}
+  </div>
+  <div class="who-filter" style="margin-top:-6px">
+    <button class="who-btn${!filterAccountId?' active':''}" onclick="setAccountFilter(null)">💵 전체 계좌</button>
+    ${accounts.map(a=>`<button class="who-btn${filterAccountId===a.id?' active':''}" onclick="setAccountFilter(${a.id})">${ACCOUNT_ICONS[a.type]||'📝'} ${a.name}</button>`).join('')}
   </div>
 
   <div class="budget-mini">
@@ -995,6 +1015,140 @@ function renderMonthly() {
 }
 
 function setWhoFilter(who) { filterWho = who; render(); }
+function setAccountFilter(id) { filterAccountId = id; render(); }
+
+// ── 계좌별 입출금 추적 모달 ────────────────────────
+let acctDetailId = null;
+let acctDetailRange = 'month'; // 'month' | '3m' | '6m' | 'all'
+
+function openAccountDetail(accountId) {
+  acctDetailId = accountId;
+  acctDetailRange = 'month';
+  renderAccountDetail();
+  document.getElementById('accountDetailModal').classList.add('open');
+}
+
+function setAcctDetailRange(range) {
+  acctDetailRange = range;
+  renderAccountDetail();
+}
+
+function renderAccountDetail() {
+  const acct = accounts.find(a => a.id === acctDetailId);
+  if (!acct) return;
+
+  // 기간 필터 시작일
+  const now = new Date();
+  let startStr = '';
+  if (acctDetailRange === 'month') {
+    startStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  } else if (acctDetailRange === '3m') {
+    const d = new Date(now.getFullYear(), now.getMonth()-2, 1);
+    startStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+  } else if (acctDetailRange === '6m') {
+    const d = new Date(now.getFullYear(), now.getMonth()-5, 1);
+    startStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+  }
+
+  // 거래 필터링
+  let acctTxs = allTxs.filter(t => t.account_id === acctDetailId || t.to_account_id === acctDetailId);
+  if (startStr) acctTxs = acctTxs.filter(t => t.date >= startStr);
+
+  // 입출금 합계
+  let inflow = 0, outflow = 0;
+  acctTxs.forEach(t => {
+    if (t.type === 'income' && t.account_id === acctDetailId) inflow += t.amount;
+    else if (t.type === 'expense' && t.account_id === acctDetailId) outflow += t.amount;
+    else if (t.type === 'transfer') {
+      if (t.to_account_id === acctDetailId) inflow += t.amount;
+      if (t.account_id === acctDetailId) outflow += t.amount;
+    }
+  });
+  const net = inflow - outflow;
+
+  // 최신순 정렬
+  acctTxs.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.id - a.id)));
+
+  // 헤더
+  const ownerStr = acct.owner ? ` · ${acct.owner}` : '';
+  document.getElementById('accountDetailTitle').textContent = `${ACCOUNT_ICONS[acct.type]||'📝'} ${acct.name}${ownerStr}`;
+
+  // 잔액/요약
+  const balColor = acct.balance >= 0 ? 'var(--text)' : 'var(--red)';
+  const balSign = acct.balance >= 0 ? '' : '-';
+  const netColor = net >= 0 ? 'var(--green)' : 'var(--red)';
+  const netSign = net >= 0 ? '+' : '-';
+
+  const rangeBtn = (val, label) =>
+    `<button onclick="setAcctDetailRange('${val}')" style="background:${acctDetailRange===val?'var(--accent)':'var(--surface2)'};border:1px solid ${acctDetailRange===val?'var(--accent)':'var(--border)'};color:${acctDetailRange===val?'white':'var(--text2)'};border-radius:7px;padding:6px 11px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">${label}</button>`;
+
+  let html = `
+    <div style="background:var(--surface2);border-radius:12px;padding:13px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2);font-weight:600">💎 현재 잔액</div>
+        <div style="font-size:18px;font-weight:800;color:${balColor}">${balSign}${fmt(acct.balance)}원</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div style="text-align:center"><div style="font-size:10px;color:var(--text3);margin-bottom:3px">입금</div><div style="color:var(--green);font-weight:700;font-size:13px">+${fmt(inflow)}</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:var(--text3);margin-bottom:3px">출금</div><div style="color:var(--red);font-weight:700;font-size:13px">-${fmt(outflow)}</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:var(--text3);margin-bottom:3px">순변동</div><div style="color:${netColor};font-weight:700;font-size:13px">${netSign}${fmt(Math.abs(net))}</div></div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap">
+      ${rangeBtn('month', '이번달')}
+      ${rangeBtn('3m', '3개월')}
+      ${rangeBtn('6m', '6개월')}
+      ${rangeBtn('all', '전체')}
+    </div>
+
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:600">📋 거래 ${acctTxs.length}건</div>
+  `;
+
+  if (!acctTxs.length) {
+    html += `<div style="text-align:center;color:var(--text3);font-size:12px;padding:24px;background:var(--surface2);border-radius:8px">선택한 기간에 거래가 없어요</div>`;
+  } else {
+    html += `<div style="display:flex;flex-direction:column;gap:6px;max-height:48vh;overflow-y:auto;padding-right:2px">`;
+    acctTxs.forEach(tx => {
+      let sign, color, label, sub = tx.memo || '';
+      if (tx.type === 'transfer') {
+        const fromName = accounts.find(a => a.id === tx.account_id)?.name || '?';
+        const toName = accounts.find(a => a.id === tx.to_account_id)?.name || '?';
+        if (tx.to_account_id === acctDetailId) {
+          sign = '+'; color = 'var(--accent2)';
+          label = `🔄 이체 입금 <span style="color:var(--text3);font-weight:400">← ${fromName}</span>`;
+        } else {
+          sign = '-'; color = 'var(--accent2)';
+          label = `🔄 이체 출금 <span style="color:var(--text3);font-weight:400">→ ${toName}</span>`;
+        }
+      } else if (tx.type === 'income') {
+        sign = '+'; color = 'var(--green)';
+        label = `${ICONS[tx.category]||'📝'} ${tx.category} <span style="color:var(--text3);font-weight:400">· ${tx.who}</span>`;
+      } else {
+        sign = '-'; color = 'var(--red)';
+        label = `${ICONS[tx.category]||'📝'} ${tx.category} <span style="color:var(--text3);font-weight:400">· ${tx.who}</span>`;
+      }
+      html += `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--surface2);border-radius:8px;cursor:pointer;gap:8px" onclick="document.getElementById('accountDetailModal').classList.remove('open'); editTx(${tx.id})">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+            <div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(tx.date).slice(5)}${sub ? ' · ' + sub : ''}</div>
+          </div>
+          <div style="font-size:14px;font-weight:700;color:${color};white-space:nowrap;flex-shrink:0">${sign}${fmt(tx.amount)}</div>
+        </div>`;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('accountDetailBody').innerHTML = html;
+}
+
+// 오버레이 클릭 시 닫기
+document.getElementById('accountDetailModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('accountDetailModal')) {
+    document.getElementById('accountDetailModal').classList.remove('open');
+  }
+});
 
 // ── Annual view ───────────────────────────────────
 function renderAnnual() {
@@ -2258,7 +2412,7 @@ function renderAssetsView() {
         const ownerTxt = WHO_TEXT[a.owner] || 'var(--text2)';
         const ownerBadge = a.owner ? `<span class="badge" style="background:${ownerBg};color:${ownerTxt};border:none;margin-left:4px">${a.owner}</span>` : '';
         const savingsBadge = a.is_savings ? `<span class="badge" style="background:rgba(255,193,7,0.15);color:#FFC107;border:none;margin-left:4px">💰 저축</span>` : '';
-        html += `<div class="account-item">
+        html += `<div class="account-item" style="cursor:pointer" onclick="openAccountDetail(${a.id})">
           <div class="account-icon">${ACCOUNT_ICONS[a.type]||'📝'}</div>
           <div class="account-info">
             <div class="account-name">${a.name}${ownerBadge}${savingsBadge}</div>
@@ -2266,8 +2420,8 @@ function renderAssetsView() {
           </div>
           <div class="account-balance" style="color:${balColor}">${balSign}${fmt(a.balance)}원</div>
           <div class="account-actions">
-            <button class="del-btn" onclick="openAccountModal(${a.id})" style="color:var(--accent2);font-size:14px">✏️</button>
-            <button class="del-btn" onclick="deleteAccount(${a.id})">✕</button>
+            <button class="del-btn" onclick="event.stopPropagation(); openAccountModal(${a.id})" style="color:var(--accent2);font-size:14px">✏️</button>
+            <button class="del-btn" onclick="event.stopPropagation(); deleteAccount(${a.id})">✕</button>
           </div>
         </div>`;
       });
