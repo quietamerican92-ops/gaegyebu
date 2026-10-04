@@ -16,13 +16,21 @@ jobs:
       - name: Ping Supabase to prevent auto-pause
         env:
           SUPABASE_URL: https://odexjawwfgvglaborzdn.supabase.co
-          SUPABASE_KEY: eyJhbGci••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+          SUPABASE_KEY: sb_publishable_Q0SLcw4XljrL1nI91D8-lg_NLXDGkir
         run: |
           echo "Pinging Supabase REST API..."
-          curl -sSf -X GET \
+          # 응답 본문과 HTTP 코드를 모두 출력. 2xx가 아니면 실패로 간주.
+          RESPONSE=$(curl -sS -X GET \
             "$SUPABASE_URL/rest/v1/transactions?select=id&limit=1" \
             -H "apikey: $SUPABASE_KEY" \
             -H "Authorization: Bearer $SUPABASE_KEY" \
-            -o /dev/null \
-            -w "HTTP %{http_code}\n"
-          echo "✅ Keepalive ping successful at $(date -u)"
+            -w "\nHTTP_CODE:%{http_code}")
+          echo "Response:"
+          echo "$RESPONSE"
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1 | sed 's/HTTP_CODE://')
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✅ Keepalive ping successful (HTTP $HTTP_CODE) at $(date -u)"
+          else
+            echo "❌ Keepalive ping failed (HTTP $HTTP_CODE)"
+            exit 1
+          fi
