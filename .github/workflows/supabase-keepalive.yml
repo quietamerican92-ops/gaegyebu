@@ -1,0 +1,28 @@
+name: Supabase Keepalive
+
+# Supabase 무료 티어는 7일간 활동 없으면 자동 pause됨.
+# 이 workflow가 매일 1회 간단한 쿼리를 보내서 pause를 방지함.
+
+on:
+  schedule:
+    # 매일 UTC 03:17 (KST 12:17) 실행. 정각(0분)은 GitHub 부하로 밀릴 수 있어 임의 분으로 설정.
+    - cron: '17 3 * * *'
+  workflow_dispatch:  # Actions 탭에서 수동 실행 가능
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase to prevent auto-pause
+        env:
+          SUPABASE_URL: https://odexjawwfgvglaborzdn.supabase.co
+          SUPABASE_KEY: eyJhbGci••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
+        run: |
+          echo "Pinging Supabase REST API..."
+          curl -sSf -X GET \
+            "$SUPABASE_URL/rest/v1/transactions?select=id&limit=1" \
+            -H "apikey: $SUPABASE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_KEY" \
+            -o /dev/null \
+            -w "HTTP %{http_code}\n"
+          echo "✅ Keepalive ping successful at $(date -u)"
